@@ -1,25 +1,45 @@
-import { Web3Storage } from "web3.storage";
+import * as Client from '@web3-storage/w3up-client'
 
-console.log("Initializing Web3Storage...");
-const token = import.meta.env.VITE_WEB3_TOKEN;
-console.log("Token present:", !!token);
+let clientPromise = null
 
-const client = new Web3Storage({
-  token: token,
-});
+async function getClient() {
+  if (!clientPromise) {
+    clientPromise = (async () => {
+      console.log('Initializing w3up client...')
+      const client = await Client.create()
+
+      // One-time login per device (opens email auth)
+      if (!client.currentSpace()) {
+        console.log('Logging in to Web3.Storage...')
+        await client.login(import.meta.env.VITE_WEB3_EMAIL)
+
+        const spaces = await client.spaces()
+        const space = spaces[0]
+        await client.setCurrentSpace(space.did())
+        console.log('Using space:', space.did())
+      }
+
+      return client
+    })()
+  }
+
+  return clientPromise
+}
 
 export async function uploadToIPFS(blob) {
-  console.log("Creating file from blob...");
-  const file = new File([blob], "encrypted-file");
-  console.log("File created:", file.name, file.size, "bytes");
-
-  console.log("Uploading to Web3Storage...");
   try {
-    const cid = await client.put([file]);
-    console.log("Successfully uploaded! CID:", cid);
-    return cid;
+    const client = await getClient()
+
+    console.log('Creating file from blob...')
+    const file = new File([blob], 'encrypted-file')
+
+    console.log('Uploading file to IPFS via Web3.Storage...')
+    const cid = await client.uploadFile(file)
+
+    console.log('Upload successful! CID:', cid.toString())
+    return cid.toString()
   } catch (error) {
-    console.error("Upload error:", error.message);
-    throw error;
+    console.error('Upload failed:', error)
+    throw error
   }
 }
