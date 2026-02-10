@@ -1,5 +1,8 @@
 import { ethers } from "ethers";
 
+// ✅ DEPLOYED ConsentManager CONTRACT ADDRESS (Sepolia)
+const CONTRACT_ADDRESS = "0x7645f28e8EC6441F6FE5ad7475f09e3B96e272Ea";
+
 // ABI for ConsentManager.sol
 const abi = [
   "event AccessGranted(address indexed provider, string cid)",
@@ -9,56 +12,54 @@ const abi = [
   "function checkAccess(address provider, string cid) view returns (bool)"
 ];
 
-// Bytecode placeholder (replace with actual compiled bytecode)
-const bytecode = "<CONSENT_MANAGER_BYTECODE>";
-
-// Connect to MetaMask provider
+// MetaMask provider
 function getProvider() {
   if (!window.ethereum) throw new Error("MetaMask not found");
   return new ethers.BrowserProvider(window.ethereum);
 }
 
-// Get signer from MetaMask
+// MetaMask signer
 async function getSigner() {
   const provider = getProvider();
   await provider.send("eth_requestAccounts", []);
   return await provider.getSigner();
 }
 
-// Deploy ConsentManager contract
-export async function deployContract() {
-  const signer = await getSigner();
-  const factory = new ethers.ContractFactory(abi, bytecode, signer);
-  const contract = await factory.deploy();
-  await contract.waitForDeployment();
-  return contract.target;
-}
+// ---------------- CONTRACT ACTIONS ----------------
 
-// Get contract instance at address
-function getContract(address) {
-  const provider = getProvider();
-  return new ethers.Contract(address, abi, provider).connect(provider);
-}
-
-// Grant access
-export async function grantAccess(contractAddress, providerAddress, cid) {
+// Grant access (writes to blockchain)
+export async function grantAccess(providerAddress, cid) {
   const signer = await getSigner();
-  const contract = new ethers.Contract(contractAddress, abi, signer);
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+
   const tx = await contract.grantAccess(providerAddress, cid);
   await tx.wait();
 }
 
-// Revoke access
-export async function revokeAccess(contractAddress, providerAddress, cid) {
+// Revoke access (writes to blockchain)
+export async function revokeAccess(providerAddress, cid) {
   const signer = await getSigner();
-  const contract = new ethers.Contract(contractAddress, abi, signer);
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+
   const tx = await contract.revokeAccess(providerAddress, cid);
   await tx.wait();
 }
 
-// Check access
-export async function checkAccess(contractAddress, providerAddress, cid) {
+// Check access (read-only)
+export async function checkAccess(providerAddress, cid) {
   const provider = getProvider();
-  const contract = new ethers.Contract(contractAddress, abi, provider);
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
+
   return await contract.checkAccess(providerAddress, cid);
+}
+
+// Get connected wallet
+export async function getCurrentWalletAddress() {
+  if (!window.ethereum) throw new Error("MetaMask not found");
+
+  const accounts = await window.ethereum.request({
+    method: "eth_requestAccounts",
+  });
+
+  return accounts[0];
 }
