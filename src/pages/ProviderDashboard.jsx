@@ -42,22 +42,30 @@ function getEncryptedMaterial(file) {
 }
 
 const IPFS_GATEWAYS = [
-  "https://w3s.link/ipfs/",
-  "https://dweb.link/ipfs/",
   "https://ipfs.io/ipfs/",
-  "https://cloudflare-ipfs.com/ipfs/"
+  "https://dweb.link/ipfs/",
+  "https://cloudflare-ipfs.com/ipfs/",
+  "https://w3s.link/ipfs/"
 ];
+let lastHealthyGateway = IPFS_GATEWAYS[0];
 
 async function fetchIpfsWithFallback(cid) {
   let lastError = null;
+  const orderedGateways = [
+    lastHealthyGateway,
+    ...IPFS_GATEWAYS.filter((gateway) => gateway !== lastHealthyGateway)
+  ];
 
-  for (const gateway of IPFS_GATEWAYS) {
+  for (const gateway of orderedGateways) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
       const response = await fetch(`${gateway}${cid}`, { signal: controller.signal });
       clearTimeout(timeoutId);
-      if (response.ok) return response;
+      if (response.ok) {
+        lastHealthyGateway = gateway;
+        return response;
+      }
       lastError = new Error(`Gateway failed: ${gateway} (${response.status})`);
     } catch (error) {
       clearTimeout(timeoutId);
