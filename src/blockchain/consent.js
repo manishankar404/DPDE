@@ -1,65 +1,140 @@
 import { ethers } from "ethers";
+import { CONSENT_CONTRACT_ADDRESS } from "./config";
 
-// ✅ DEPLOYED ConsentManager CONTRACT ADDRESS (Sepolia)
-const CONTRACT_ADDRESS = "0x7645f28e8EC6441F6FE5ad7475f09e3B96e272Ea";
-
-// ABI for ConsentManager.sol
 const abi = [
-  "event AccessGranted(address indexed provider, string cid)",
-  "event AccessRevoked(address indexed provider, string cid)",
-  "function grantAccess(address provider, string cid)",
-  "function revokeAccess(address provider, string cid)",
-  "function checkAccess(address provider, string cid) view returns (bool)"
+  "event AccessRequested(address indexed patient, address indexed provider)",
+  "event AccessGranted(address indexed patient, address indexed provider)",
+  "event AccessRevoked(address indexed patient, address indexed provider)",
+  "function requestPatientAccess(address patient)",
+  "function grantAccess(address provider)",
+  "function revokeAccess(address provider)",
+  "function rejectAccessRequest(address provider)",
+  "function hasAccess(address patient, address provider) view returns (bool)",
+  "function getPendingRequests(address patient) view returns (address[])",
+  "function isPending(address patient, address provider) view returns (bool)"
 ];
 
-// MetaMask provider
+let validatedAddress = "";
+
 function getProvider() {
   if (!window.ethereum) throw new Error("MetaMask not found");
   return new ethers.BrowserProvider(window.ethereum);
 }
 
-// MetaMask signer
 async function getSigner() {
   const provider = getProvider();
   await provider.send("eth_requestAccounts", []);
-  return await provider.getSigner();
+  return provider.getSigner();
 }
 
-// ---------------- CONTRACT ACTIONS ----------------
-
-// Grant access (writes to blockchain)
-export async function grantAccess(providerAddress, cid) {
+async function getContract() {
   const signer = await getSigner();
-  const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+  const contract = new ethers.Contract(CONSENT_CONTRACT_ADDRESS, abi, signer);
 
-  const tx = await contract.grantAccess(providerAddress, cid);
+  if (validatedAddress !== CONSENT_CONTRACT_ADDRESS) {
+    try {
+      const self = await contract.runner.getAddress();
+      await contract.hasAccess.staticCall(self, self);
+      validatedAddress = CONSENT_CONTRACT_ADDRESS;
+    } catch {
+      throw new Error(
+        "ConsentManager mismatch: update src/blockchain/config.js with the newly deployed patient-level contract address on Sepolia."
+      );
+    }
+  }
+
+  return contract;
+}
+
+function getLatestLog(logs) {
+  if (!logs || logs.length === 0) return null;
+  return logs.reduce((latest, current) => {
+    if (!latest) return current;
+    const currentIndex = current.index ?? current.logIndex ?? 0;
+    const latestIndex = latest.index ?? latest.logIndex ?? 0;
+    if (current.blockNumber > latest.blockNumber) return current;
+    if (current.blockNumber === latest.blockNumber && currentIndex > latestIndex) {
+      return current;
+    }
+    return latest;
+  }, null);
+}
+
+export async function requestPatientAccess(patientAddress) {
+  const contract = await getContract();
+  const tx = await contract.requestPatientAccess(patientAddress);
   await tx.wait();
 }
 
-// Revoke access (writes to blockchain)
-export async function revokeAccess(providerAddress, cid) {
-  const signer = await getSigner();
-  const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
-
-  const tx = await contract.revokeAccess(providerAddress, cid);
+export async function grantAccess(providerAddress) {
+  const contract = await getContract();
+  const tx = await contract.grantAccess(providerAddress);
   await tx.wait();
 }
 
-// Check access (read-only)
-export async function checkAccess(providerAddress, cid) {
-  const provider = getProvider();
-  const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
-
-  return await contract.checkAccess(providerAddress, cid);
+export async function revokeAccess(providerAddress) {
+  const contract = await getContract();
+  const tx = await contract.revokeAccess(providerAddress);
+  await tx.wait();
 }
 
-// Get connected wallet
+export async function rejectAccessRequest(providerAddress) {
+  const contract = await getContract();
+  const tx = await contract.rejectAccessRequest(providerAddress);
+  await tx.wait();
+}
+
+export async function hasAccess(patientAddress, providerAddress) {
+  const contract = await getContract();
+  return contract.hasAccess(patientAddress, providerAddress);
+}
+
+export async function checkMyAccess(patientAddress) {
+  const providerAddress = await getCurrentWalletAddress();
+  return hasAccess(patientAddress, providerAddress);
+}
+
+export async function getPendingRequests(patientAddress) {
+  const contract = await getContract();
+  return contract.getPendingRequests(patientAddress);
+}
+
+export async function isPendingAccessRequest(patientAddress, providerAddress) {
+  const contract = await getContract();
+  return contract.isPending(patientAddress, providerAddress);
+}
+
+export async function getMyPatientAccessStatus(patientAddress) {
+  const contract = await getContract();
+  const providerAddress = await contract.runner.getAddress();
+
+  const [approved, pending] = await Promise.all([
+    contract.hasAccess(patientAddress, providerAddress),
+    contract.isPending(patientAddress, providerAddress)
+  ]);
+
+  if (approved) return "approved";
+  if (pending) return "pending";
+
+  const [requestedLogs, grantedLogs, revokedLogs] = await Promise.all([
+    contract.queryFilter(contract.filters.AccessRequested(patientAddress, providerAddress)),
+    contract.queryFilter(contract.filters.AccessGranted(patientAddress, providerAddress)),
+    contract.queryFilter(contract.filters.AccessRevoked(patientAddress, providerAddress))
+  ]);
+
+  const lastRequested = getLatestLog(requestedLogs);
+  if (!lastRequested) return "";
+
+  const lastGranted = getLatestLog(grantedLogs);
+  const lastRevoked = getLatestLog(revokedLogs);
+  const lastDecision = getLatestLog([lastGranted, lastRevoked].filter(Boolean));
+
+  if (!lastDecision) return "denied";
+  return lastDecision.fragment.name === "AccessGranted" ? "approved" : "denied";
+}
+
 export async function getCurrentWalletAddress() {
-  if (!window.ethereum) throw new Error("MetaMask not found");
-
-  const accounts = await window.ethereum.request({
-    method: "eth_requestAccounts",
-  });
-
+  const provider = getProvider();
+  const accounts = await provider.send("eth_requestAccounts", []);
   return accounts[0];
 }
