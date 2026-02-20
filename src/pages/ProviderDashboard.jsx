@@ -10,6 +10,7 @@ import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
 import Input from "../components/Input";
 import Loader from "../components/Loader";
+import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
 import Toast from "../components/Toast";
 import { useAccess } from "../context/AccessContext";
@@ -84,6 +85,12 @@ export default function ProviderDashboard() {
   const [files, setFiles] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [actionLoading, setActionLoading] = useState("");
+  const [preview, setPreview] = useState({
+    open: false,
+    url: "",
+    type: "",
+    name: ""
+  });
   const [toasts, setToasts] = useState([]);
   const objectUrlsRef = useRef([]);
 
@@ -101,6 +108,14 @@ export default function ProviderDashboard() {
       objectUrlsRef.current = [];
     };
   }, []);
+
+  function closePreview() {
+    if (preview.url) {
+      URL.revokeObjectURL(preview.url);
+      objectUrlsRef.current = objectUrlsRef.current.filter((item) => item !== preview.url);
+    }
+    setPreview({ open: false, url: "", type: "", name: "" });
+  }
 
   const accessBadge = useMemo(() => {
     if (patientAccessStatus === "approved") return "Access Granted";
@@ -155,16 +170,15 @@ export default function ProviderDashboard() {
     }
   }
 
-  async function openFile(file) {
+  async function decryptToObjectUrl(file) {
     if (!patientAddress) return;
-    setActionLoading(`open_${file.cid}`);
+
     try {
       const providerAddress = await getCurrentWalletAddress();
       const allowed = await checkMyAccess(patientAddress);
       if (!allowed) {
         await refreshAccessStatus(patientAddress);
-        addToast("Access is not approved for this patient.", "error");
-        return;
+        throw new Error("Access is not approved for this patient.");
       }
 
       const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
@@ -178,18 +192,49 @@ export default function ProviderDashboard() {
       const encryptedBlob = await response.blob();
       const decryptedBlob = await decryptBlob(encryptedBlob, key, iv);
 
-      const url = URL.createObjectURL(decryptedBlob);
+      const mimeType = file.fileType || decryptedBlob.type || "application/octet-stream";
+      const normalizedBlob = new Blob([decryptedBlob], { type: mimeType });
+      const url = URL.createObjectURL(normalizedBlob);
       objectUrlsRef.current.push(url);
+      return { url, mimeType, providerAddress };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async function openFile(file) {
+    if (!patientAddress) return;
+    setActionLoading(`open_${file.cid}`);
+    try {
+      const { url, providerAddress } = await decryptToObjectUrl(file);
       const link = document.createElement("a");
       link.href = url;
       link.download = file.fileName || "record";
       document.body.appendChild(link);
       link.click();
       link.remove();
-
       addToast(`Opened file as ${providerAddress.slice(0, 6)}...`, "success");
     } catch (error) {
       addToast(formatApiError(error, "Failed to open file."), "error");
+    } finally {
+      setActionLoading("");
+    }
+  }
+
+  async function viewFile(file) {
+    if (!patientAddress) return;
+    setActionLoading(`view_${file.cid}`);
+    try {
+      const { url, mimeType } = await decryptToObjectUrl(file);
+      setPreview({
+        open: true,
+        url,
+        type: mimeType,
+        name: file.fileName || "record"
+      });
+      addToast("File opened in web preview.", "success");
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to preview file."), "error");
     } finally {
       setActionLoading("");
     }
@@ -255,7 +300,8 @@ export default function ProviderDashboard() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {files.map((file) => {
-              const loading = actionLoading === `open_${file.cid}`;
+              const loadingDownload = actionLoading === `open_${file.cid}`;
+              const loadingView = actionLoading === `view_${file.cid}`;
               const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
               const hasKeyMaterial = Boolean(keyCandidate && ivCandidate);
               return (
@@ -273,14 +319,25 @@ export default function ProviderDashboard() {
                     </p>
                   ) : null}
                   <div className="mt-3">
-                    <Button
-                      type="button"
-                      loading={loading}
-                      disabled={patientAccessStatus !== "approved" || !hasKeyMaterial}
-                      onClick={() => openFile(file)}
-                    >
-                      Open File
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        loading={loadingView}
+                        disabled={patientAccessStatus !== "approved" || !hasKeyMaterial}
+                        onClick={() => viewFile(file)}
+                      >
+                        View File
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        loading={loadingDownload}
+                        disabled={patientAccessStatus !== "approved" || !hasKeyMaterial}
+                        onClick={() => openFile(file)}
+                      >
+                        Download
+                      </Button>
+                    </div>
                   </div>
                 </div>
               );
@@ -288,6 +345,41 @@ export default function ProviderDashboard() {
           </div>
         )}
       </Card>
+
+      <Modal
+        open={preview.open}
+        title={`Preview: ${preview.name}`}
+        onClose={closePreview}
+      >
+        {preview.type.startsWith("image/") ? (
+          <img src={preview.url} alt={preview.name} className="max-h-[70vh] w-full object-contain" />
+        ) : preview.type === "application/pdf" ? (
+          <iframe
+            src={preview.url}
+            title={preview.name}
+            className="h-[70vh] w-full rounded-xl border border-slate-200"
+          />
+        ) : preview.type.startsWith("video/") ? (
+          <video src={preview.url} controls className="max-h-[70vh] w-full rounded-xl" />
+        ) : preview.type.startsWith("audio/") ? (
+          <audio src={preview.url} controls className="w-full" />
+        ) : preview.type.startsWith("text/") ? (
+          <iframe
+            src={preview.url}
+            title={preview.name}
+            className="h-[70vh] w-full rounded-xl border border-slate-200"
+          />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              This file type cannot be previewed in-browser.
+            </p>
+            <Button type="button" variant="ghost" onClick={closePreview}>
+              Close Preview
+            </Button>
+          </div>
+        )}
+      </Modal>
 
       <div className="fixed right-4 top-4 z-50 space-y-2">
         {toasts.map((toast) => (
