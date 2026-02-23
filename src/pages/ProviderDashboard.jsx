@@ -142,6 +142,10 @@ export default function ProviderDashboard() {
       setFiles(Array.isArray(fileList) ? fileList : []);
       const status = await refreshAccessStatus(patient.walletAddress);
       if (!status) {
+        console.error("[ProviderDashboard] Access status unavailable", {
+          patientId: patientId.trim(),
+          patientAddress: patient.walletAddress
+        });
         addToast(
           "Patient files loaded, but blockchain access status is unavailable. Redeploy/update ConsentManager if needed.",
           "warning"

@@ -23,7 +23,11 @@ export function AccessProvider({ children }) {
         const status = await getMyPatientAccessStatus(patientAddress);
         setPatientAccessStatus(status);
         return status;
-      } catch {
+      } catch (error) {
+        console.error("[Access] refreshAccessStatus failed", {
+          patientAddress,
+          error: error?.message || error
+        });
         // Do not block UI if chain call fails (e.g., stale contract deployment/ABI mismatch).
         setPatientAccessStatus("");
         return "";
@@ -43,7 +47,11 @@ export function AccessProvider({ children }) {
         const list = await getPendingProviderRequests(target);
         setPendingRequests(Array.isArray(list) ? list : []);
         return list;
-      } catch {
+      } catch (error) {
+        console.error("[Access] refreshPendingRequests failed", {
+          patientAddress: target,
+          error: error?.message || error
+        });
         setPendingRequests([]);
         return [];
       }

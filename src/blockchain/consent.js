@@ -16,12 +16,41 @@ const abi = [
 
 let validatedAddress = "";
 
+const SEPOLIA_CHAIN_ID = "0xaa36a7";
+const SEPOLIA_PARAMS = {
+  chainId: SEPOLIA_CHAIN_ID,
+  chainName: "Sepolia",
+  rpcUrls: ["https://rpc.sepolia.org"],
+  nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
+  blockExplorerUrls: ["https://sepolia.etherscan.io"]
+};
+
+export async function ensureSepolia() {
+  if (!window.ethereum) throw new Error("MetaMask not found");
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: SEPOLIA_CHAIN_ID }]
+    });
+  } catch (error) {
+    if (error?.code === 4902) {
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [SEPOLIA_PARAMS]
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
 function getProvider() {
   if (!window.ethereum) throw new Error("MetaMask not found");
   return new ethers.BrowserProvider(window.ethereum);
 }
 
 async function getSigner() {
+  await ensureSepolia();
   const provider = getProvider();
   await provider.send("eth_requestAccounts", []);
   return provider.getSigner();
@@ -36,7 +65,19 @@ async function getContract() {
       const self = await contract.runner.getAddress();
       await contract.hasAccess.staticCall(self, self);
       validatedAddress = CONSENT_CONTRACT_ADDRESS;
-    } catch {
+    } catch (error) {
+      try {
+        const provider = getProvider();
+        const network = await provider.getNetwork();
+        console.error("[ConsentManager] Validation failed", {
+          address: CONSENT_CONTRACT_ADDRESS,
+          chainId: Number(network?.chainId || 0),
+          name: network?.name,
+          error: error?.message || error
+        });
+      } catch (logError) {
+        console.error("[ConsentManager] Validation failed (logging error)", logError);
+      }
       throw new Error(
         "ConsentManager mismatch: update src/blockchain/config.js with the newly deployed patient-level contract address on Sepolia."
       );
@@ -134,6 +175,7 @@ export async function getMyPatientAccessStatus(patientAddress) {
 }
 
 export async function getCurrentWalletAddress() {
+  await ensureSepolia();
   const provider = getProvider();
   const accounts = await provider.send("eth_requestAccounts", []);
   return accounts[0];
