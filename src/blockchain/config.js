@@ -1,3 +1,5 @@
 // blockchain/config.js
 export const CONSENT_CONTRACT_ADDRESS =
-  "0xA3AeA514D0B29669a5518edE52589539FE7Fe8D5";
+  import.meta.env.VITE_CONSENT_CONTRACT_ADDRESS ||
+  import.meta.env.CONSENT_CONTRACT_ADDRESS ||
+  "";
