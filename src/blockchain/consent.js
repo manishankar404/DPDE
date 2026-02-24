@@ -11,6 +11,7 @@ const abi = [
   "function rejectAccessRequest(address provider)",
   "function hasAccess(address patient, address provider) view returns (bool)",
   "function getPendingRequests(address patient) view returns (address[])",
+  "function getGrantedProviders(address patient) view returns (address[])",
   "function isPending(address patient, address provider) view returns (bool)"
 ];
 
@@ -101,6 +102,15 @@ function getLatestLog(logs) {
   }, null);
 }
 
+function isLogAfter(current, candidate) {
+  if (!candidate) return true;
+  if (current.blockNumber > candidate.blockNumber) return true;
+  if (current.blockNumber < candidate.blockNumber) return false;
+  const currentIndex = current.index ?? current.logIndex ?? 0;
+  const candidateIndex = candidate.index ?? candidate.logIndex ?? 0;
+  return currentIndex > candidateIndex;
+}
+
 export async function requestPatientAccess(patientAddress) {
   const contract = await getContract();
   const tx = await contract.requestPatientAccess(patientAddress);
@@ -179,4 +189,38 @@ export async function getCurrentWalletAddress() {
   const provider = getProvider();
   const accounts = await provider.send("eth_requestAccounts", []);
   return accounts[0];
+}
+
+export async function getGrantedProviders(patientAddress) {
+  const contract = await getContract();
+  try {
+    const list = await contract.getGrantedProviders(patientAddress);
+    return Array.isArray(list) ? list : [];
+  } catch (error) {
+    console.warn("[ConsentManager] getGrantedProviders via view failed, falling back to logs", {
+      error: error?.message || error
+    });
+  }
+
+  const [grantedLogs, revokedLogs] = await Promise.all([
+    contract.queryFilter(contract.filters.AccessGranted(patientAddress, null)),
+    contract.queryFilter(contract.filters.AccessRevoked(patientAddress, null))
+  ]);
+
+  const latestByProvider = new Map();
+  const applyLog = (log, type) => {
+    const provider = log.args?.provider;
+    if (!provider) return;
+    const existing = latestByProvider.get(provider);
+    if (!existing || isLogAfter(log, existing.log)) {
+      latestByProvider.set(provider, { type, log });
+    }
+  };
+
+  grantedLogs.forEach((log) => applyLog(log, "granted"));
+  revokedLogs.forEach((log) => applyLog(log, "revoked"));
+
+  return Array.from(latestByProvider.entries())
+    .filter(([, value]) => value.type === "granted")
+    .map(([provider]) => provider);
 }

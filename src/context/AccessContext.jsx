@@ -3,7 +3,8 @@ import { useAuth } from "./AuthContext";
 import {
   getMyPatientAccessStatus,
   getPendingRequests as getPendingProviderRequests,
-  getCurrentWalletAddress
+  getCurrentWalletAddress,
+  getGrantedProviders
 } from "../blockchain/consent";
 
 const AccessContext = createContext(null);
@@ -12,6 +13,7 @@ export function AccessProvider({ children }) {
   const { user } = useAuth();
   const [patientAccessStatus, setPatientAccessStatus] = useState("");
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [grantedProviders, setGrantedProviders] = useState([]);
 
   const refreshAccessStatus = useCallback(
     async (patientAddress) => {
@@ -59,15 +61,47 @@ export function AccessProvider({ children }) {
     [user]
   );
 
+  const refreshGrantedProviders = useCallback(
+    async (patientAddress) => {
+      const target = patientAddress || (user?.role === "patient" ? user.walletAddress : "");
+      if (!target) {
+        setGrantedProviders([]);
+        return [];
+      }
+      try {
+        const list = await getGrantedProviders(target);
+        setGrantedProviders(Array.isArray(list) ? list : []);
+        return list;
+      } catch (error) {
+        console.error("[Access] refreshGrantedProviders failed", {
+          patientAddress: target,
+          error: error?.message || error
+        });
+        setGrantedProviders([]);
+        return [];
+      }
+    },
+    [user]
+  );
+
   const value = useMemo(
     () => ({
       patientAccessStatus,
       pendingRequests,
+      grantedProviders,
       refreshAccessStatus,
       refreshPendingRequests,
+      refreshGrantedProviders,
       getCurrentWalletAddress
     }),
-    [patientAccessStatus, pendingRequests, refreshAccessStatus, refreshPendingRequests]
+    [
+      patientAccessStatus,
+      pendingRequests,
+      grantedProviders,
+      refreshAccessStatus,
+      refreshPendingRequests,
+      refreshGrantedProviders
+    ]
   );
 
   return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>;

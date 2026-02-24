@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatApiError, getFilesByPatient, registerFile } from "../api";
-import { grantAccess, rejectAccessRequest } from "../blockchain/consent";
+import { grantAccess, rejectAccessRequest, revokeAccess } from "../blockchain/consent";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
@@ -81,7 +81,8 @@ async function fetchIpfsWithFallback(cid) {
 
 export default function PatientDashboard() {
   const { user } = useAuth();
-  const { pendingRequests, refreshPendingRequests } = useAccess();
+  const { pendingRequests, grantedProviders, refreshPendingRequests, refreshGrantedProviders } =
+    useAccess();
   const fileInputRef = useRef(null);
   const objectUrlsRef = useRef([]);
 
@@ -92,6 +93,7 @@ export default function PatientDashboard() {
   const [dragActive, setDragActive] = useState(false);
   const [actionLoadingKey, setActionLoadingKey] = useState("");
   const [fileActionLoading, setFileActionLoading] = useState("");
+  const [accessActionLoading, setAccessActionLoading] = useState("");
   const [latestCid, setLatestCid] = useState("");
   const [preview, setPreview] = useState({
     open: false,
@@ -127,9 +129,10 @@ export default function PatientDashboard() {
   const metrics = useMemo(
     () => ({
       totalFiles: files.length,
-      pendingRequests: pendingRequests.length
+      pendingRequests: pendingRequests.length,
+      activeProviders: grantedProviders.length
     }),
-    [files.length, pendingRequests.length]
+    [files.length, pendingRequests.length, grantedProviders.length]
   );
 
   async function loadFiles() {
@@ -146,7 +149,11 @@ export default function PatientDashboard() {
   }
 
   async function refreshAll() {
-    await Promise.all([loadFiles(), refreshPendingRequests(user?.walletAddress)]);
+    await Promise.all([
+      loadFiles(),
+      refreshPendingRequests(user?.walletAddress),
+      refreshGrantedProviders(user?.walletAddress)
+    ]);
   }
 
   useEffect(() => {
@@ -203,7 +210,10 @@ export default function PatientDashboard() {
     try {
       await grantAccess(provider);
       addToast("Provider access granted.", "success");
-      await refreshPendingRequests(user.walletAddress);
+      await Promise.all([
+        refreshPendingRequests(user.walletAddress),
+        refreshGrantedProviders(user.walletAddress)
+      ]);
     } catch (error) {
       addToast(formatApiError(error, "Failed to approve provider."), "error");
     } finally {
@@ -221,6 +231,19 @@ export default function PatientDashboard() {
       addToast(formatApiError(error, "Failed to reject request."), "error");
     } finally {
       setActionLoadingKey("");
+    }
+  }
+
+  async function revokeProviderAccess(provider) {
+    setAccessActionLoading(provider);
+    try {
+      await revokeAccess(provider);
+      addToast("Provider access revoked.", "success");
+      await refreshGrantedProviders(user.walletAddress);
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to revoke access."), "error");
+    } finally {
+      setAccessActionLoading("");
     }
   }
 
@@ -290,6 +313,12 @@ export default function PatientDashboard() {
           <p className="text-sm text-slate-500">Pending Provider Requests</p>
           <p className="mt-2 text-2xl font-bold text-healthcare-warning">
             {metrics.pendingRequests}
+          </p>
+        </Card>
+        <Card>
+          <p className="text-sm text-slate-500">Active Provider Access</p>
+          <p className="mt-2 text-2xl font-bold text-healthcare-teal">
+            {metrics.activeProviders}
           </p>
         </Card>
       </div>
@@ -382,6 +411,50 @@ export default function PatientDashboard() {
                             Reject
                           </Button>
                         </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Active Provider Access" subtitle="Providers who currently have access">
+        {grantedProviders.length === 0 ? (
+          <EmptyState
+            title="No active access"
+            description="Providers you approve will appear here."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500">
+                  <th className="py-2">Provider Address</th>
+                  <th className="py-2">Status</th>
+                  <th className="py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grantedProviders.map((provider) => {
+                  const isBusy = accessActionLoading === provider;
+                  return (
+                    <tr key={provider} className="border-b border-slate-100">
+                      <td className="py-3 font-mono text-xs">{provider}</td>
+                      <td className="py-3">
+                        <StatusBadge status="approved" />
+                      </td>
+                      <td className="py-3">
+                        <Button
+                          type="button"
+                          variant="danger"
+                          loading={isBusy}
+                          onClick={() => revokeProviderAccess(provider)}
+                        >
+                          Revoke
+                        </Button>
                       </td>
                     </tr>
                   );
