@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ethers } from "ethers";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Input from "../components/Input";
 import Loader from "../components/Loader";
-import { formatApiError, getPatientById } from "../api";
+import { formatApiError, getPatientById, requestNonce, verifySignature } from "../api";
+import { ensureSepolia } from "../blockchain/consent";
 import { useAuth } from "../context/AuthContext";
 
 function preloadPatientDashboard() {
@@ -21,14 +23,30 @@ export default function PatientLogin() {
   const [walletAddress, setWalletAddress] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const validation = useMemo(() => {
     if (!patientId.trim()) return "Patient ID is required.";
-    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress.trim())) {
-      return "Enter a valid wallet address.";
-    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress.trim())) return "Connect a wallet.";
     return "";
   }, [patientId, walletAddress]);
+
+  async function connectWallet() {
+    setConnecting(true);
+    setError("");
+    try {
+      await ensureSepolia();
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      setWalletAddress(address);
+    } catch (connectError) {
+      setError(formatApiError(connectError, "Failed to connect wallet."));
+    } finally {
+      setConnecting(false);
+    }
+  }
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -37,6 +55,20 @@ export default function PatientLogin() {
     setLoading(true);
 
     try {
+      await ensureSepolia();
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      if (address.toLowerCase() !== walletAddress.trim().toLowerCase()) {
+        setError("Connected wallet address changed. Please reconnect.");
+        return;
+      }
+
+      const { nonce } = await requestNonce(address);
+      const signature = await signer.signMessage(nonce);
+      const { token } = await verifySignature({ walletAddress: address, signature });
+
       const patient = await getPatientById(patientId.trim());
       if (patient.walletAddress.toLowerCase() !== walletAddress.trim().toLowerCase()) {
         setError("Wallet address does not match this patient ID.");
@@ -47,7 +79,7 @@ export default function PatientLogin() {
         patientId: patient.patientId,
         walletAddress: patient.walletAddress,
         name: patient.name
-      });
+      }, token);
       await preloadPatientDashboard();
       navigate("/patient/dashboard");
     } catch (submitError) {
@@ -71,8 +103,17 @@ export default function PatientLogin() {
             id="patientLoginWallet"
             label="Wallet Address"
             value={walletAddress}
-            onChange={(event) => setWalletAddress(event.target.value)}
+            readOnly
           />
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={connectWallet}
+            loading={connecting}
+          >
+            {walletAddress ? "Reconnect Wallet" : "Connect Wallet"}
+          </Button>
 
           {validation && (patientId || walletAddress) ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">

@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ethers } from "ethers";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Input from "../components/Input";
 import Loader from "../components/Loader";
-import { formatApiError, getProviderByWallet } from "../api";
+import { formatApiError, getProviderByWallet, requestNonce, verifySignature } from "../api";
+import { ensureSepolia } from "../blockchain/consent";
 import { useAuth } from "../context/AuthContext";
 
 function preloadProviderDashboard() {
@@ -20,13 +22,29 @@ export default function ProviderLogin() {
   const [walletAddress, setWalletAddress] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const validation = useMemo(() => {
-    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress.trim())) {
-      return "Enter a valid wallet address.";
-    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress.trim())) return "Connect a wallet.";
     return "";
   }, [walletAddress]);
+
+  async function connectWallet() {
+    setConnecting(true);
+    setError("");
+    try {
+      await ensureSepolia();
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      setWalletAddress(address);
+    } catch (connectError) {
+      setError(formatApiError(connectError, "Failed to connect wallet."));
+    } finally {
+      setConnecting(false);
+    }
+  }
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -35,12 +53,29 @@ export default function ProviderLogin() {
     setLoading(true);
     setError("");
     try {
-      const provider = await getProviderByWallet(walletAddress.trim());
-      login({
-        role: "provider",
-        walletAddress: provider.walletAddress,
-        hospitalName: provider.hospitalName
-      });
+      await ensureSepolia();
+      const web3Provider = new ethers.BrowserProvider(window.ethereum);
+      await web3Provider.send("eth_requestAccounts", []);
+      const signer = await web3Provider.getSigner();
+      const address = await signer.getAddress();
+      if (address.toLowerCase() !== walletAddress.trim().toLowerCase()) {
+        setError("Connected wallet address changed. Please reconnect.");
+        return;
+      }
+
+      const { nonce } = await requestNonce(address);
+      const signature = await signer.signMessage(nonce);
+      const { token } = await verifySignature({ walletAddress: address, signature });
+
+      const provider = await getProviderByWallet(address.trim());
+      login(
+        {
+          role: "provider",
+          walletAddress: provider.walletAddress,
+          hospitalName: provider.hospitalName
+        },
+        token
+      );
       await preloadProviderDashboard();
       navigate("/provider/dashboard");
     } catch (submitError) {
@@ -58,8 +93,17 @@ export default function ProviderLogin() {
             id="providerLoginWallet"
             label="Wallet Address"
             value={walletAddress}
-            onChange={(event) => setWalletAddress(event.target.value)}
+            readOnly
           />
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={connectWallet}
+            loading={connecting}
+          >
+            {walletAddress ? "Reconnect Wallet" : "Connect Wallet"}
+          </Button>
 
           {validation && walletAddress ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">

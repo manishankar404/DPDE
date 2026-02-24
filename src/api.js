@@ -1,4 +1,16 @@
 export const API_BASE_URL = "http://localhost:5000/api";
+const AUTH_STORAGE_KEY = "dpde_auth_session";
+
+function getStoredToken() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return "";
+    const parsed = JSON.parse(raw);
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
 
 export function formatApiError(error, fallbackMessage = "Something went wrong.") {
   if (!error) return fallbackMessage;
@@ -27,9 +39,11 @@ async function parseResponse(response) {
 
 async function request(path, options = {}) {
   try {
+    const token = getStoredToken();
     const response = await fetch(`${API_BASE_URL}${path}`, {
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers || {})
       },
       ...options
@@ -60,6 +74,20 @@ export function registerProvider(data) {
 
 export function getProviderByWallet(walletAddress) {
   return request(`/providers/${encodeURIComponent(walletAddress)}`);
+}
+
+export function requestNonce(walletAddress) {
+  return request("/auth/request-nonce", {
+    method: "POST",
+    body: JSON.stringify({ walletAddress })
+  });
+}
+
+export function verifySignature(payload) {
+  return request("/auth/verify", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function registerFile(data) {
@@ -101,4 +129,3 @@ export function getPendingRequests(patientId) {
 export function getProviderRequests(providerWallet) {
   return request(`/access/provider/${encodeURIComponent(providerWallet)}`);
 }
-

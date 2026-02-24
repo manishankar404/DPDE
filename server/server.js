@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import { connectDB } from "./config/db.js";
 import accessRoutes from "./routes/accessRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import patientRoutes from "./routes/patientRoutes.js";
 import providerRoutes from "./routes/providerRoutes.js";
@@ -23,6 +24,7 @@ app.use("/api/patients", patientRoutes);
 app.use("/api/providers", providerRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/access", accessRoutes);
+app.use("/api/auth", authRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });
