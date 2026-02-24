@@ -1,9 +1,17 @@
 import { Router } from "express";
-import { getFilesByPatientId, registerFile } from "../controllers/fileController.js";
+import {
+  getFilesByPatientId,
+  registerFile,
+  revokeWrappedKeys,
+  wrapKeyForProvider
+} from "../controllers/fileController.js";
+import { authenticate } from "../middleware/authMiddleware.js";
 
 const router = Router();
 
-router.post("/register", registerFile);
-router.get("/:patientId", getFilesByPatientId);
+router.post("/register", authenticate, registerFile);
+router.post("/wrap-key", authenticate, wrapKeyForProvider);
+router.post("/revoke-key", authenticate, revokeWrappedKeys);
+router.get("/:patientId", authenticate, getFilesByPatientId);
 
 export default router;

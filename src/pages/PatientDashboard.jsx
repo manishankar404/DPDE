@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatApiError, getFilesByPatient, registerFile } from "../api";
-import { grantAccess, rejectAccessRequest, revokeAccess } from "../blockchain/consent";
+import { encrypt } from "@metamask/eth-sig-util";
+import { Buffer } from "buffer";
+import {
+  formatApiError,
+  getFilesByPatient,
+  getProviderByWallet,
+  registerFile,
+  revokeWrappedKeys,
+  wrapKeyForProvider
+} from "../api";
+import { ensureSepolia, grantAccess, rejectAccessRequest, revokeAccess } from "../blockchain/consent";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
@@ -14,10 +23,6 @@ import { decryptBlob } from "../decrypt";
 import { encryptFile } from "../encrypt";
 import { uploadToIPFS } from "../upload";
 
-function encodeArray(arr) {
-  return btoa(JSON.stringify(arr));
-}
-
 function decodeArray(encoded) {
   if (!encoded) return [];
   try {
@@ -26,6 +31,38 @@ function decodeArray(encoded) {
   } catch {
     return [];
   }
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
+function bufferToHex(buffer) {
+  return `0x${Buffer.from(buffer).toString("hex")}`;
+}
+
+function base64ToBytes(value) {
+  if (!value) return [];
+  const binary = atob(value);
+  return Array.from(binary).map((char) => char.charCodeAt(0));
+}
+
+  async function getEncryptionPublicKey(address) {
+    return window.ethereum.request({
+      method: "eth_getEncryptionPublicKey",
+      params: [address]
+    });
+  }
+
+async function decryptKeyWithWallet(encryptedKeyHex, walletAddress) {
+  return window.ethereum.request({
+    method: "eth_decrypt",
+    params: [encryptedKeyHex, walletAddress]
+  });
 }
 
 function getEncryptedMaterial(file) {
@@ -167,8 +204,30 @@ export default function PatientDashboard() {
     setUploading(true);
     setUploadProgress(10);
     try {
+      if (!window.ethereum) {
+        throw new Error("MetaMask not found.");
+      }
+      await ensureSepolia();
+      const [walletAddress] = await window.ethereum.request({
+        method: "eth_requestAccounts"
+      });
+      if (!walletAddress) {
+        throw new Error("Wallet connection required.");
+      }
+
       const encrypted = await encryptFile(file);
       setUploadProgress(35);
+
+      const publicKey = await getEncryptionPublicKey(walletAddress);
+      const aesKeyBase64 = bytesToBase64(encrypted.key);
+      const encryptedKeyObject = encrypt({
+        publicKey,
+        data: aesKeyBase64,
+        version: "x25519-xsalsa20-poly1305"
+      });
+      const encryptedKeyHex = bufferToHex(
+        Buffer.from(JSON.stringify(encryptedKeyObject), "utf8")
+      );
 
       const uploadedCid = await uploadToIPFS(encrypted.encryptedBlob);
       setUploadProgress(60);
@@ -180,10 +239,8 @@ export default function PatientDashboard() {
         patientId: user.patientId,
         fileName: file.name,
         fileType: file.type || "",
-        encryptedKey: encodeArray(encrypted.key),
-        encryptedIv: encodeArray(encrypted.iv),
-        encryptedKeyForProvider: encodeArray(encrypted.key),
-        encryptedIvForProvider: encodeArray(encrypted.iv)
+        iv: bytesToBase64(encrypted.iv),
+        encryptedKeyForPatient: encryptedKeyHex
       });
 
       setUploadProgress(100);
@@ -208,6 +265,57 @@ export default function PatientDashboard() {
   async function approveProvider(provider) {
     setActionLoadingKey(provider);
     try {
+      if (!window.ethereum) {
+        throw new Error("MetaMask not found.");
+      }
+      await ensureSepolia();
+      const patientWallet = user?.walletAddress;
+      if (!patientWallet) {
+        throw new Error("Patient wallet address missing.");
+      }
+
+      let providerPublicKey = "";
+      try {
+        providerPublicKey = await getEncryptionPublicKey(provider);
+      } catch {
+        const providerRecord = await getProviderByWallet(provider);
+        providerPublicKey = providerRecord?.encryptionPublicKey || "";
+      }
+      if (!providerPublicKey) {
+        throw new Error("Provider encryption key not found.");
+      }
+      for (const file of files) {
+        if (!file.encryptedKeyForPatient && !file.encryptedKey) {
+          continue;
+        }
+        let aesKeyBase64 = "";
+        if (file.encryptedKeyForPatient) {
+          aesKeyBase64 = await decryptKeyWithWallet(
+            file.encryptedKeyForPatient,
+            patientWallet
+          );
+        } else if (file.encryptedKey) {
+          const legacyKey = decodeArray(file.encryptedKey);
+          aesKeyBase64 = bytesToBase64(legacyKey);
+        }
+        if (!aesKeyBase64) continue;
+
+        const encryptedKeyObject = encrypt({
+          publicKey: providerPublicKey,
+          data: aesKeyBase64,
+          version: "x25519-xsalsa20-poly1305"
+        });
+        const encryptedKeyHex = bufferToHex(
+          Buffer.from(JSON.stringify(encryptedKeyObject), "utf8")
+        );
+
+        await wrapKeyForProvider({
+          fileId: file._id,
+          providerWallet: provider,
+          encryptedKeyForProvider: encryptedKeyHex
+        });
+      }
+
       await grantAccess(provider);
       addToast("Provider access granted.", "success");
       await Promise.all([
@@ -238,6 +346,10 @@ export default function PatientDashboard() {
     setAccessActionLoading(provider);
     try {
       await revokeAccess(provider);
+      await revokeWrappedKeys({
+        patientId: user.patientId,
+        providerWallet: provider
+      });
       addToast("Provider access revoked.", "success");
       await refreshGrantedProviders(user.walletAddress);
     } catch (error) {
@@ -248,9 +360,25 @@ export default function PatientDashboard() {
   }
 
   async function decryptToObjectUrl(file) {
-    const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
-    const key = decodeArray(keyCandidate);
-    const iv = decodeArray(ivCandidate);
+    let key = [];
+    let iv = [];
+    if (file.encryptedKeyForPatient && file.iv) {
+      if (!window.ethereum) {
+        throw new Error("MetaMask not found.");
+      }
+      await ensureSepolia();
+      const aesKeyBase64 = await decryptKeyWithWallet(
+        file.encryptedKeyForPatient,
+        user?.walletAddress
+      );
+      key = base64ToBytes(aesKeyBase64);
+      iv = base64ToBytes(file.iv);
+    } else {
+      const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
+      key = decodeArray(keyCandidate);
+      iv = decodeArray(ivCandidate);
+    }
+
     if (!key.length || !iv.length) {
       throw new Error("Missing encrypted key material for file.");
     }
@@ -476,7 +604,9 @@ export default function PatientDashboard() {
               const loadingDownload = fileActionLoading === `open_${file.cid}`;
               const loadingView = fileActionLoading === `view_${file.cid}`;
               const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
-              const hasKeyMaterial = Boolean(keyCandidate && ivCandidate);
+              const hasKeyMaterial = Boolean(
+                (file.encryptedKeyForPatient && file.iv) || (keyCandidate && ivCandidate)
+              );
               return (
                 <div
                   key={file._id || `${file.cid}_${file.uploadedAt}`}

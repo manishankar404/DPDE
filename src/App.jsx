@@ -13,6 +13,7 @@ const PatientRegister = lazy(() => import("./pages/PatientRegister"));
 const ProviderDashboard = lazy(() => import("./pages/ProviderDashboard"));
 const ProviderLogin = lazy(() => import("./pages/ProviderLogin"));
 const ProviderRegister = lazy(() => import("./pages/ProviderRegister"));
+const ProviderSettings = lazy(() => import("./pages/ProviderSettings"));
 
 function GuestOnlyRoute({ children }) {
   const { isAuthenticated, user } = useAuth();
@@ -92,6 +93,7 @@ export default function App() {
             }
           >
             <Route index element={<ProviderDashboard />} />
+            <Route path="settings" element={<ProviderSettings />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />

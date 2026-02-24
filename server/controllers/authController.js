@@ -14,7 +14,7 @@ export async function requestNonce(req, res, next) {
     await Nonce.findOneAndUpdate(
       { walletAddress },
       { nonce },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: "after" }
     );
 
     return res.status(200).json({ nonce });

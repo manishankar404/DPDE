@@ -76,6 +76,13 @@ export function getProviderByWallet(walletAddress) {
   return request(`/providers/${encodeURIComponent(walletAddress)}`);
 }
 
+export function updateProviderEncryptionKey(walletAddress, encryptionPublicKey) {
+  return request(`/providers/${encodeURIComponent(walletAddress)}/encryption-key`, {
+    method: "PUT",
+    body: JSON.stringify({ encryptionPublicKey })
+  });
+}
+
 export function requestNonce(walletAddress) {
   return request("/auth/request-nonce", {
     method: "POST",
@@ -97,8 +104,11 @@ export function registerFile(data) {
   });
 }
 
-export function getFilesByPatient(patientId) {
-  return request(`/files/${encodeURIComponent(patientId)}`);
+export function getFilesByPatient(patientId, providerWallet = "") {
+  const query = providerWallet
+    ? `?providerWallet=${encodeURIComponent(providerWallet)}`
+    : "";
+  return request(`/files/${encodeURIComponent(patientId)}${query}`);
 }
 
 export function requestAccess(data) {
@@ -128,4 +138,18 @@ export function getPendingRequests(patientId) {
 
 export function getProviderRequests(providerWallet) {
   return request(`/access/provider/${encodeURIComponent(providerWallet)}`);
+}
+
+export function wrapKeyForProvider(data) {
+  return request("/files/wrap-key", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export function revokeWrappedKeys(data) {
+  return request("/files/revoke-key", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
 }

@@ -1,7 +1,27 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-})
+  resolve: {
+    alias: {
+      events: "events",
+      util: "util",
+      process: "process/browser"
+    }
+  },
+  define: {
+    global: "globalThis",
+    "process.env": {}
+  },
+  optimizeDeps: {
+    include: [
+      "events",
+      "buffer",
+      "process",
+      "util",
+      "@metamask/eth-sig-util"
+    ]
+  }
+});

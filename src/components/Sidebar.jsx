@@ -41,6 +41,14 @@ export default function Sidebar({ role, collapsed, onToggle, onLogout }) {
           <span className={baseItem}>{collapsed ? "U" : "Upload"}</span>
         ) : null}
         <span className={baseItem}>{collapsed ? "R" : "Requests"}</span>
+        {role === "provider" ? (
+          <NavLink
+            to="/provider/dashboard/settings"
+            className={({ isActive }) => `${baseItem} ${isActive ? activeItem : ""}`}
+          >
+            {collapsed ? "S" : "Settings"}
+          </NavLink>
+        ) : null}
       </nav>
 
       <div className="mt-8">
@@ -56,4 +64,3 @@ export default function Sidebar({ role, collapsed, onToggle, onLogout }) {
     </aside>
   );
 }
-

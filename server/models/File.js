@@ -6,6 +6,18 @@ const fileSchema = new mongoose.Schema(
     patientId: { type: String, required: true, trim: true },
     fileName: { type: String, required: true, trim: true },
     fileType: { type: String, default: "", trim: true },
+    iv: { type: String, default: "" },
+    encryptedKeyForPatient: { type: String, default: "" },
+    wrappedKeys: {
+      type: [
+        {
+          providerWallet: { type: String, required: true },
+          encryptedKey: { type: String, required: true }
+        }
+      ],
+      default: []
+    },
+    // Legacy fields retained for backward compatibility.
     encryptedKey: { type: String, default: "" },
     encryptedIv: { type: String, default: "" },
     encryptedKeyForProvider: { type: String, default: "" },

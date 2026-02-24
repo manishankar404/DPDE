@@ -1,26 +1,51 @@
 import { useMemo, useState } from "react";
+import { ethers } from "ethers";
 import { Link, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Input from "../components/Input";
 import Loader from "../components/Loader";
 import { formatApiError, registerProvider } from "../api";
+import { ensureSepolia } from "../blockchain/consent";
 
 export default function ProviderRegister() {
   const navigate = useNavigate();
   const [hospitalName, setHospitalName] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
+  const [publicKey, setPublicKey] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const validation = useMemo(() => {
     if (!hospitalName.trim()) return "Hospital name is required.";
-    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress.trim())) {
-      return "Enter a valid wallet address.";
-    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress.trim())) return "Connect a wallet.";
+    if (!publicKey) return "Wallet encryption key is required.";
     return "";
-  }, [hospitalName, walletAddress]);
+  }, [hospitalName, walletAddress, publicKey]);
+
+  async function connectWallet() {
+    setConnecting(true);
+    setError("");
+    try {
+      await ensureSepolia();
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      const encryptionPublicKey = await window.ethereum.request({
+        method: "eth_getEncryptionPublicKey",
+        params: [address]
+      });
+      setWalletAddress(address);
+      setPublicKey(encryptionPublicKey);
+    } catch (connectError) {
+      setError(formatApiError(connectError, "Failed to connect wallet."));
+    } finally {
+      setConnecting(false);
+    }
+  }
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -32,7 +57,8 @@ export default function ProviderRegister() {
     try {
       await registerProvider({
         hospitalName: hospitalName.trim(),
-        walletAddress: walletAddress.trim()
+        walletAddress: walletAddress.trim(),
+        encryptionPublicKey: publicKey
       });
       setSuccess("Provider account created. Redirecting to login...");
       setTimeout(() => navigate("/provider/login"), 900);
@@ -57,8 +83,17 @@ export default function ProviderRegister() {
             id="providerWallet"
             label="Wallet Address"
             value={walletAddress}
-            onChange={(event) => setWalletAddress(event.target.value)}
+            readOnly
           />
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={connectWallet}
+            loading={connecting}
+          >
+            {walletAddress ? "Reconnect Wallet" : "Connect Wallet"}
+          </Button>
 
           {validation && (hospitalName || walletAddress) ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
@@ -92,4 +127,3 @@ export default function ProviderRegister() {
     </div>
   );
 }
-

@@ -14,6 +14,7 @@ import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
 import Toast from "../components/Toast";
 import { useAccess } from "../context/AccessContext";
+import { useAuth } from "../context/AuthContext";
 import { decryptBlob } from "../decrypt";
 
 function decodeArray(encoded) {
@@ -24,6 +25,19 @@ function decodeArray(encoded) {
   } catch {
     return [];
   }
+}
+
+function base64ToBytes(value) {
+  if (!value) return [];
+  const binary = atob(value);
+  return Array.from(binary).map((char) => char.charCodeAt(0));
+}
+
+async function decryptKeyWithWallet(encryptedKeyHex, walletAddress) {
+  return window.ethereum.request({
+    method: "eth_decrypt",
+    params: [encryptedKeyHex, walletAddress]
+  });
 }
 
 function getEncryptedMaterial(file) {
@@ -78,6 +92,7 @@ async function fetchIpfsWithFallback(cid) {
 }
 
 export default function ProviderDashboard() {
+  const { user } = useAuth();
   const { patientAccessStatus, refreshAccessStatus } = useAccess();
   const [patientId, setPatientId] = useState("");
   const [patientIdError, setPatientIdError] = useState("");
@@ -133,9 +148,11 @@ export default function ProviderDashboard() {
     setPatientIdError("");
     setLoadingSearch(true);
     try {
+      const providerWallet =
+        user?.walletAddress || (await getCurrentWalletAddress());
       const [patient, fileList] = await Promise.all([
         getPatientById(patientId.trim()),
-        getFilesByPatient(patientId.trim())
+        getFilesByPatient(patientId.trim(), providerWallet)
       ]);
 
       setPatientAddress(patient.walletAddress);
@@ -174,6 +191,7 @@ export default function ProviderDashboard() {
     }
   }
 
+
   async function decryptToObjectUrl(file) {
     if (!patientAddress) return;
 
@@ -185,9 +203,23 @@ export default function ProviderDashboard() {
         throw new Error("Access is not approved for this patient.");
       }
 
-      const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
-      const key = decodeArray(keyCandidate);
-      const iv = decodeArray(ivCandidate);
+      let key = [];
+      let iv = [];
+      if (file.encryptedKeyForProvider && file.iv) {
+        if (!window.ethereum) {
+          throw new Error("MetaMask not found.");
+        }
+        const aesKeyBase64 = await decryptKeyWithWallet(
+          file.encryptedKeyForProvider,
+          providerAddress
+        );
+        key = base64ToBytes(aesKeyBase64);
+        iv = base64ToBytes(file.iv);
+      } else {
+        const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
+        key = decodeArray(keyCandidate);
+        iv = decodeArray(ivCandidate);
+      }
       if (!key.length || !iv.length) {
         throw new Error("Missing encrypted key material for file.");
       }
@@ -307,7 +339,9 @@ export default function ProviderDashboard() {
               const loadingDownload = actionLoading === `open_${file.cid}`;
               const loadingView = actionLoading === `view_${file.cid}`;
               const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
-              const hasKeyMaterial = Boolean(keyCandidate && ivCandidate);
+              const hasKeyMaterial = Boolean(
+                (file.encryptedKeyForProvider && file.iv) || (keyCandidate && ivCandidate)
+              );
               return (
                 <div
                   key={file._id || file.cid}
