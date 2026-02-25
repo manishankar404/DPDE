@@ -108,7 +108,9 @@ export function getFilesByPatient(patientId, providerWallet = "") {
   const query = providerWallet
     ? `?providerWallet=${encodeURIComponent(providerWallet)}`
     : "";
-  return request(`/files/${encodeURIComponent(patientId)}${query}`);
+  return request(`/files/${encodeURIComponent(patientId)}${query}`, {
+    cache: "no-store"
+  });
 }
 
 export function requestAccess(data) {

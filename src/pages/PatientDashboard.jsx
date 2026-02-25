@@ -17,6 +17,8 @@ import Loader from "../components/Loader";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
 import Toast from "../components/Toast";
+import DicomViewer from "../components/DicomViewer";
+import NiftiViewer from "../components/NiftiViewer";
 import { useAccess } from "../context/AccessContext";
 import { useAuth } from "../context/AuthContext";
 import { decryptBlob } from "../decrypt";
@@ -51,12 +53,17 @@ function base64ToBytes(value) {
   return Array.from(binary).map((char) => char.charCodeAt(0));
 }
 
-  async function getEncryptionPublicKey(address) {
-    return window.ethereum.request({
-      method: "eth_getEncryptionPublicKey",
-      params: [address]
-    });
-  }
+async function getEncryptionPublicKey(address) {
+  const storageKey = `dpde_enc_pubkey_${address.toLowerCase()}`;
+  const cached = localStorage.getItem(storageKey);
+  if (cached) return cached;
+  const publicKey = await window.ethereum.request({
+    method: "eth_getEncryptionPublicKey",
+    params: [address]
+  });
+  localStorage.setItem(storageKey, publicKey);
+  return publicKey;
+}
 
 async function decryptKeyWithWallet(encryptedKeyHex, walletAddress) {
   return window.ethereum.request({
@@ -132,13 +139,19 @@ export default function PatientDashboard() {
   const [fileActionLoading, setFileActionLoading] = useState("");
   const [accessActionLoading, setAccessActionLoading] = useState("");
   const [latestCid, setLatestCid] = useState("");
+  const [unlockLoading, setUnlockLoading] = useState(false);
+  const [unlockStats, setUnlockStats] = useState({ total: 0, cached: 0 });
+  const [uploadPreview, setUploadPreview] = useState({ files: [], blocked: [] });
   const [preview, setPreview] = useState({
     open: false,
     url: "",
     type: "",
-    name: ""
+    name: "",
+    isDicom: false,
+    isNifti: false
   });
   const [toasts, setToasts] = useState([]);
+  const keyCacheRef = useRef(new Map());
 
   function addToast(message, tone = "info") {
     setToasts((prev) => [...prev, { id: `${Date.now()}_${Math.random()}`, message, tone }]);
@@ -155,12 +168,17 @@ export default function PatientDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    keyCacheRef.current.clear();
+    setUnlockStats({ total: 0, cached: 0 });
+  }, [user?.walletAddress]);
+
   function closePreview() {
     if (preview.url) {
       URL.revokeObjectURL(preview.url);
       objectUrlsRef.current = objectUrlsRef.current.filter((item) => item !== preview.url);
     }
-    setPreview({ open: false, url: "", type: "", name: "" });
+    setPreview({ open: false, url: "", type: "", name: "", isDicom: false, isNifti: false });
   }
 
   const metrics = useMemo(
@@ -197,6 +215,56 @@ export default function PatientDashboard() {
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.patientId, user?.walletAddress]);
+
+  function normalizeFiles(input) {
+    if (!input) return [];
+    return Array.isArray(input) ? input : Array.from(input);
+  }
+
+  function getExtension(fileName) {
+    const name = (fileName || "").toLowerCase();
+    if (name.endsWith(".nii.gz")) return ".nii.gz";
+    if (name.endsWith(".img.gz")) return ".img.gz";
+    const idx = name.lastIndexOf(".");
+    return idx >= 0 ? name.slice(idx) : "";
+  }
+
+  function isSupportedFile(file) {
+    const name = (file.name || "").toLowerCase();
+    const ext = getExtension(name);
+    if (ext === ".hdr" || ext === ".img" || ext === ".img.gz") return false;
+    if (ext === ".nii" || ext === ".nii.gz" || ext === ".nia") return true;
+    if (ext === ".dcm" || ext === ".dicom") return true;
+    if (ext === ".png" || ext === ".jpg" || ext === ".jpeg" || ext === ".bmp") return true;
+    if (ext === ".tif" || ext === ".tiff") return true;
+    if (ext === ".pdf") return true;
+    if (file.type?.startsWith("image/")) return true;
+    if (file.type?.startsWith("audio/")) return true;
+    if (file.type?.startsWith("video/")) return true;
+    if (file.type?.startsWith("text/")) return true;
+    return false;
+  }
+
+  function splitUploads(selectedFiles) {
+    const files = normalizeFiles(selectedFiles);
+    const supported = [];
+    const blocked = [];
+
+    files.forEach((file) => {
+      if (isSupportedFile(file)) {
+        supported.push(file);
+      } else {
+        blocked.push(file.name);
+      }
+    });
+
+    return {
+      ok: supported.length > 0,
+      files: supported,
+      preview: { files: supported.map((file) => file.name), blocked },
+      error: supported.length ? "" : "No supported files selected."
+    };
+  }
 
   async function uploadFile(file) {
     if (!file || !user?.patientId) return;
@@ -255,67 +323,93 @@ export default function PatientDashboard() {
     }
   }
 
+  async function uploadFiles(inputFiles) {
+    const { ok, files: filesToUpload, error, preview } = splitUploads(inputFiles);
+    if (preview) setUploadPreview(preview);
+    if (!ok) {
+      addToast(error || "No supported files selected.", "warning");
+      return;
+    }
+
+    let uploadedCount = 0;
+    for (const file of filesToUpload) {
+      // eslint-disable-next-line no-await-in-loop
+      await uploadFile(file);
+      uploadedCount += 1;
+    }
+    if (uploadedCount > 1) {
+      addToast(`${uploadedCount} files uploaded.`, "success");
+    }
+    setUploadPreview({ files: [], blocked: [] });
+  }
+
   function onDrop(event) {
     event.preventDefault();
     setDragActive(false);
-    const file = event.dataTransfer?.files?.[0];
-    if (file) uploadFile(file);
+    const dropped = event.dataTransfer?.files;
+    if (dropped?.length) {
+      uploadFiles(dropped);
+    }
+  }
+
+  async function wrapKeysForProvider(provider) {
+    if (!window.ethereum) {
+      throw new Error("MetaMask not found.");
+    }
+    await ensureSepolia();
+    const patientWallet = user?.walletAddress;
+    if (!patientWallet) {
+      throw new Error("Patient wallet address missing.");
+    }
+
+    let providerPublicKey = "";
+    try {
+      providerPublicKey = await getEncryptionPublicKey(provider);
+    } catch {
+      const providerRecord = await getProviderByWallet(provider);
+      providerPublicKey = providerRecord?.encryptionPublicKey || "";
+    }
+    if (!providerPublicKey) {
+      throw new Error("Provider encryption key not found.");
+    }
+
+    for (const file of files) {
+      if (!file.encryptedKeyForPatient && !file.encryptedKey) {
+        continue;
+      }
+      let aesKeyBase64 = "";
+      if (file.encryptedKeyForPatient) {
+        aesKeyBase64 = await decryptKeyWithWallet(
+          file.encryptedKeyForPatient,
+          patientWallet
+        );
+      } else if (file.encryptedKey) {
+        const legacyKey = decodeArray(file.encryptedKey);
+        aesKeyBase64 = bytesToBase64(legacyKey);
+      }
+      if (!aesKeyBase64) continue;
+
+      const encryptedKeyObject = encrypt({
+        publicKey: providerPublicKey,
+        data: aesKeyBase64,
+        version: "x25519-xsalsa20-poly1305"
+      });
+      const encryptedKeyHex = bufferToHex(
+        Buffer.from(JSON.stringify(encryptedKeyObject), "utf8")
+      );
+
+      await wrapKeyForProvider({
+        fileId: file._id,
+        providerWallet: provider,
+        encryptedKeyForProvider: encryptedKeyHex
+      });
+    }
   }
 
   async function approveProvider(provider) {
     setActionLoadingKey(provider);
     try {
-      if (!window.ethereum) {
-        throw new Error("MetaMask not found.");
-      }
-      await ensureSepolia();
-      const patientWallet = user?.walletAddress;
-      if (!patientWallet) {
-        throw new Error("Patient wallet address missing.");
-      }
-
-      let providerPublicKey = "";
-      try {
-        providerPublicKey = await getEncryptionPublicKey(provider);
-      } catch {
-        const providerRecord = await getProviderByWallet(provider);
-        providerPublicKey = providerRecord?.encryptionPublicKey || "";
-      }
-      if (!providerPublicKey) {
-        throw new Error("Provider encryption key not found.");
-      }
-      for (const file of files) {
-        if (!file.encryptedKeyForPatient && !file.encryptedKey) {
-          continue;
-        }
-        let aesKeyBase64 = "";
-        if (file.encryptedKeyForPatient) {
-          aesKeyBase64 = await decryptKeyWithWallet(
-            file.encryptedKeyForPatient,
-            patientWallet
-          );
-        } else if (file.encryptedKey) {
-          const legacyKey = decodeArray(file.encryptedKey);
-          aesKeyBase64 = bytesToBase64(legacyKey);
-        }
-        if (!aesKeyBase64) continue;
-
-        const encryptedKeyObject = encrypt({
-          publicKey: providerPublicKey,
-          data: aesKeyBase64,
-          version: "x25519-xsalsa20-poly1305"
-        });
-        const encryptedKeyHex = bufferToHex(
-          Buffer.from(JSON.stringify(encryptedKeyObject), "utf8")
-        );
-
-        await wrapKeyForProvider({
-          fileId: file._id,
-          providerWallet: provider,
-          encryptedKeyForProvider: encryptedKeyHex
-        });
-      }
-
+      await wrapKeysForProvider(provider);
       await grantAccess(provider);
       addToast("Provider access granted.", "success");
       await Promise.all([
@@ -343,7 +437,7 @@ export default function PatientDashboard() {
   }
 
   async function revokeProviderAccess(provider) {
-    setAccessActionLoading(provider);
+    setAccessActionLoading(`revoke_${provider}`);
     try {
       await revokeAccess(provider);
       await revokeWrappedKeys({
@@ -359,20 +453,42 @@ export default function PatientDashboard() {
     }
   }
 
+  async function rewrapProviderKeys(provider) {
+    setAccessActionLoading(`wrap_${provider}`);
+    try {
+      await wrapKeysForProvider(provider);
+      addToast("Keys re-wrapped for provider.", "success");
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to re-wrap keys."), "error");
+    } finally {
+      setAccessActionLoading("");
+    }
+  }
+
   async function decryptToObjectUrl(file) {
     let key = [];
     let iv = [];
+    const cacheKey = file.cid || file._id || "";
     if (file.encryptedKeyForPatient && file.iv) {
-      if (!window.ethereum) {
-        throw new Error("MetaMask not found.");
+      if (cacheKey && keyCacheRef.current.has(cacheKey)) {
+        const cached = keyCacheRef.current.get(cacheKey);
+        key = cached.key;
+        iv = cached.iv;
+      } else {
+        if (!window.ethereum) {
+          throw new Error("MetaMask not found.");
+        }
+        await ensureSepolia();
+        const aesKeyBase64 = await decryptKeyWithWallet(
+          file.encryptedKeyForPatient,
+          user?.walletAddress
+        );
+        key = base64ToBytes(aesKeyBase64);
+        iv = base64ToBytes(file.iv);
+        if (cacheKey && key.length && iv.length) {
+          keyCacheRef.current.set(cacheKey, { key, iv });
+        }
       }
-      await ensureSepolia();
-      const aesKeyBase64 = await decryptKeyWithWallet(
-        file.encryptedKeyForPatient,
-        user?.walletAddress
-      );
-      key = base64ToBytes(aesKeyBase64);
-      iv = base64ToBytes(file.iv);
     } else {
       const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
       key = decodeArray(keyCandidate);
@@ -416,17 +532,66 @@ export default function PatientDashboard() {
     setFileActionLoading(`view_${file.cid}`);
     try {
       const { url, mimeType } = await decryptToObjectUrl(file);
+      const loweredName = (file.fileName || "").toLowerCase();
+      const isDicom =
+        (file.fileType || "").toLowerCase().includes("dicom") ||
+        loweredName.endsWith(".dcm");
+      const isNifti =
+        loweredName.endsWith(".nii") ||
+        loweredName.endsWith(".nii.gz") ||
+        loweredName.endsWith(".nia");
       setPreview({
         open: true,
         url,
         type: mimeType,
-        name: file.fileName || "record"
+        name: file.fileName || "record",
+        isDicom,
+        isNifti
       });
       addToast("File opened in web preview.", "success");
     } catch (error) {
       addToast(formatApiError(error, "Failed to preview file."), "error");
     } finally {
       setFileActionLoading("");
+    }
+  }
+
+  async function unlockSessionKeys() {
+    setUnlockLoading(true);
+    try {
+      const filesNeedingKeys = files.filter(
+        (file) => file.encryptedKeyForPatient && file.iv
+      );
+      let cached = 0;
+
+      for (const file of filesNeedingKeys) {
+        const cacheKey = file.cid || file._id || "";
+        if (cacheKey && keyCacheRef.current.has(cacheKey)) {
+          cached += 1;
+          continue;
+        }
+        try {
+          const aesKeyBase64 = await decryptKeyWithWallet(
+            file.encryptedKeyForPatient,
+            user?.walletAddress
+          );
+          const key = base64ToBytes(aesKeyBase64);
+          const iv = base64ToBytes(file.iv);
+          if (cacheKey && key.length && iv.length) {
+            keyCacheRef.current.set(cacheKey, { key, iv });
+            cached += 1;
+          }
+        } catch {
+          // ignore individual failures
+        }
+      }
+
+      setUnlockStats({ total: filesNeedingKeys.length, cached });
+      addToast("Session keys cached for your files.", "success");
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to unlock session."), "error");
+    } finally {
+      setUnlockLoading(false);
     }
   }
 
@@ -449,9 +614,18 @@ export default function PatientDashboard() {
             {metrics.activeProviders}
           </p>
         </Card>
+        <Card>
+          <p className="text-sm text-slate-500">Session Keys Cached</p>
+          <p className="mt-2 text-2xl font-bold text-healthcare-blue">
+            {unlockStats.cached}/{unlockStats.total}
+          </p>
+        </Card>
       </div>
 
-      <Card title="Upload Files" subtitle="Files are encrypted and can be opened automatically after access approval">
+      <Card
+        title="Upload Files"
+        subtitle="Files are encrypted and can be opened automatically after access approval"
+      >
         <div
           className={[
             "rounded-2xl border-2 border-dashed p-8 text-center transition",
@@ -464,7 +638,10 @@ export default function PatientDashboard() {
           onDragLeave={() => setDragActive(false)}
           onDrop={onDrop}
         >
-          <p className="mb-3 text-sm text-slate-600">Drag and drop a file</p>
+          <p className="mb-3 text-sm text-slate-600">
+            Supported: DICOM (.dcm/.dicom), NIfTI (.nii/.nii.gz/.nia), images, PDF, text,
+            audio, video. Unsupported formats will be blocked.
+          </p>
           <Button type="button" variant="accent" onClick={() => fileInputRef.current?.click()}>
             Select File
           </Button>
@@ -472,9 +649,26 @@ export default function PatientDashboard() {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            onChange={(event) => uploadFile(event.target.files?.[0])}
+            multiple
+            onChange={(event) => uploadFiles(event.target.files)}
           />
         </div>
+
+        {uploadPreview.files.length ? (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-sm">
+            <p className="font-medium text-slate-700">Ready to upload</p>
+            <ul className="mt-2 space-y-1 text-slate-600">
+              {uploadPreview.files.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {uploadPreview.blocked.length ? (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Blocked files: {uploadPreview.blocked.join(", ")}
+          </div>
+        ) : null}
 
         {uploading ? (
           <div className="mt-4">
@@ -567,7 +761,8 @@ export default function PatientDashboard() {
               </thead>
               <tbody>
                 {grantedProviders.map((provider) => {
-                  const isBusy = accessActionLoading === provider;
+                  const isRevoking = accessActionLoading === `revoke_${provider}`;
+                  const isWrapping = accessActionLoading === `wrap_${provider}`;
                   return (
                     <tr key={provider} className="border-b border-slate-100">
                       <td className="py-3 font-mono text-xs">{provider}</td>
@@ -575,14 +770,24 @@ export default function PatientDashboard() {
                         <StatusBadge status="approved" />
                       </td>
                       <td className="py-3">
-                        <Button
-                          type="button"
-                          variant="danger"
-                          loading={isBusy}
-                          onClick={() => revokeProviderAccess(provider)}
-                        >
-                          Revoke
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            loading={isWrapping}
+                            onClick={() => rewrapProviderKeys(provider)}
+                          >
+                            Re-wrap Keys
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="danger"
+                            loading={isRevoking}
+                            onClick={() => revokeProviderAccess(provider)}
+                          >
+                            Revoke
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -594,6 +799,16 @@ export default function PatientDashboard() {
       </Card>
 
       <Card title="File History">
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            loading={unlockLoading}
+            onClick={unlockSessionKeys}
+          >
+            Unlock Session Keys
+          </Button>
+        </div>
         {loadingFiles ? (
           <Loader label="Loading file history..." />
         ) : files.length === 0 ? (
@@ -656,7 +871,11 @@ export default function PatientDashboard() {
         title={`Preview: ${preview.name}`}
         onClose={closePreview}
       >
-        {preview.type.startsWith("image/") ? (
+        {preview.isDicom ? (
+          <DicomViewer url={preview.url} />
+        ) : preview.isNifti ? (
+          <NiftiViewer url={preview.url} />
+        ) : preview.type.startsWith("image/") ? (
           <img src={preview.url} alt={preview.name} className="max-h-[70vh] w-full object-contain" />
         ) : preview.type === "application/pdf" ? (
           <iframe

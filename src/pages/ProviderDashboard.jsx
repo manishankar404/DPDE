@@ -13,6 +13,8 @@ import Loader from "../components/Loader";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
 import Toast from "../components/Toast";
+import DicomViewer from "../components/DicomViewer";
+import NiftiViewer from "../components/NiftiViewer";
 import { useAccess } from "../context/AccessContext";
 import { useAuth } from "../context/AuthContext";
 import { decryptBlob } from "../decrypt";
@@ -54,6 +56,10 @@ function getEncryptedMaterial(file) {
     file.iv ||
     "";
   return { keyCandidate, ivCandidate };
+}
+
+function isWrappedKey(value) {
+  return typeof value === "string" && value.startsWith("0x");
 }
 
 const IPFS_GATEWAYS = [
@@ -100,14 +106,19 @@ export default function ProviderDashboard() {
   const [files, setFiles] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [actionLoading, setActionLoading] = useState("");
+  const [unlockLoading, setUnlockLoading] = useState(false);
+  const [unlockStats, setUnlockStats] = useState({ total: 0, cached: 0 });
   const [preview, setPreview] = useState({
     open: false,
     url: "",
     type: "",
-    name: ""
+    name: "",
+    isDicom: false,
+    isNifti: false
   });
   const [toasts, setToasts] = useState([]);
   const objectUrlsRef = useRef([]);
+  const keyCacheRef = useRef(new Map());
 
   function addToast(message, tone = "info") {
     setToasts((prev) => [...prev, { id: `${Date.now()}_${Math.random()}`, message, tone }]);
@@ -124,12 +135,17 @@ export default function ProviderDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    keyCacheRef.current.clear();
+    setUnlockStats({ total: 0, cached: 0 });
+  }, [patientAddress]);
+
   function closePreview() {
     if (preview.url) {
       URL.revokeObjectURL(preview.url);
       objectUrlsRef.current = objectUrlsRef.current.filter((item) => item !== preview.url);
     }
-    setPreview({ open: false, url: "", type: "", name: "" });
+    setPreview({ open: false, url: "", type: "", name: "", isDicom: false, isNifti: false });
   }
 
   const accessBadge = useMemo(() => {
@@ -191,6 +207,48 @@ export default function ProviderDashboard() {
     }
   }
 
+  async function getDecryptionMaterials(file, providerAddress) {
+    let key = [];
+    let iv = [];
+    let cacheKey = "";
+
+    if (file.encryptedKeyForProvider && file.iv) {
+      cacheKey = file.cid || file._id || "";
+      if (cacheKey && keyCacheRef.current.has(cacheKey)) {
+        const cached = keyCacheRef.current.get(cacheKey);
+        return { key: cached.key, iv: cached.iv };
+      }
+
+      if (!window.ethereum) {
+        throw new Error("MetaMask not found.");
+      }
+      const aesKeyBase64 = await decryptKeyWithWallet(
+        file.encryptedKeyForProvider,
+        providerAddress
+      );
+      key = base64ToBytes(aesKeyBase64);
+      iv = base64ToBytes(file.iv);
+      if (cacheKey && key.length && iv.length) {
+        keyCacheRef.current.set(cacheKey, { key, iv });
+      }
+      return { key, iv };
+    }
+
+    const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
+    if (isWrappedKey(keyCandidate) && !file.iv) {
+      const fallback = getEncryptedMaterial({
+        ...file,
+        encryptedKeyForProvider: "",
+        encryptedIvForProvider: ""
+      });
+      key = decodeArray(fallback.keyCandidate);
+      iv = decodeArray(fallback.ivCandidate);
+    } else {
+      key = decodeArray(keyCandidate);
+      iv = decodeArray(ivCandidate);
+    }
+    return { key, iv };
+  }
 
   async function decryptToObjectUrl(file) {
     if (!patientAddress) return;
@@ -203,23 +261,7 @@ export default function ProviderDashboard() {
         throw new Error("Access is not approved for this patient.");
       }
 
-      let key = [];
-      let iv = [];
-      if (file.encryptedKeyForProvider && file.iv) {
-        if (!window.ethereum) {
-          throw new Error("MetaMask not found.");
-        }
-        const aesKeyBase64 = await decryptKeyWithWallet(
-          file.encryptedKeyForProvider,
-          providerAddress
-        );
-        key = base64ToBytes(aesKeyBase64);
-        iv = base64ToBytes(file.iv);
-      } else {
-        const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
-        key = decodeArray(keyCandidate);
-        iv = decodeArray(ivCandidate);
-      }
+      const { key, iv } = await getDecryptionMaterials(file, providerAddress);
       if (!key.length || !iv.length) {
         throw new Error("Missing encrypted key material for file.");
       }
@@ -262,17 +304,69 @@ export default function ProviderDashboard() {
     setActionLoading(`view_${file.cid}`);
     try {
       const { url, mimeType } = await decryptToObjectUrl(file);
+      const loweredName = (file.fileName || "").toLowerCase();
+      const isDicom =
+        (file.fileType || "").toLowerCase().includes("dicom") ||
+        loweredName.endsWith(".dcm");
+      const isNifti =
+        loweredName.endsWith(".nii") ||
+        loweredName.endsWith(".nii.gz") ||
+        loweredName.endsWith(".nia");
       setPreview({
         open: true,
         url,
         type: mimeType,
-        name: file.fileName || "record"
+        name: file.fileName || "record",
+        isDicom,
+        isNifti
       });
       addToast("File opened in web preview.", "success");
     } catch (error) {
       addToast(formatApiError(error, "Failed to preview file."), "error");
     } finally {
       setActionLoading("");
+    }
+  }
+
+  async function unlockSessionKeys() {
+    if (!patientAddress) return;
+    setUnlockLoading(true);
+    try {
+      const providerAddress = await getCurrentWalletAddress();
+      const allowed = await checkMyAccess(patientAddress);
+      if (!allowed) {
+        await refreshAccessStatus(patientAddress);
+        throw new Error("Access is not approved for this patient.");
+      }
+
+      const filesNeedingKeys = files.filter(
+        (file) => file.encryptedKeyForProvider && file.iv
+      );
+      let cached = 0;
+
+      for (const file of filesNeedingKeys) {
+        const cacheKey = file.cid || file._id || "";
+        if (cacheKey && keyCacheRef.current.has(cacheKey)) {
+          cached += 1;
+          continue;
+        }
+        try {
+          const { key, iv } = await getDecryptionMaterials(file, providerAddress);
+          if (cacheKey && key.length && iv.length) {
+            keyCacheRef.current.set(cacheKey, { key, iv });
+            cached += 1;
+          }
+        } catch {
+          // ignore individual failures
+        }
+      }
+
+      setUnlockStats({ total: filesNeedingKeys.length, cached });
+      addToast("Session keys cached for this patient.", "success");
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to unlock session."), "error");
+    } finally {
+      setUnlockLoading(false);
     }
   }
 
@@ -306,6 +400,11 @@ export default function ProviderDashboard() {
             </p>
             <StatusBadge status={patientAccessStatus || "unknown"} />
             <span className="text-xs text-slate-600">{accessBadge}</span>
+            {unlockStats.total > 0 ? (
+              <span className="text-xs text-slate-500">
+                Session keys: {unlockStats.cached}/{unlockStats.total}
+              </span>
+            ) : null}
           </div>
 
           {patientAccessStatus !== "approved" ? (
@@ -324,7 +423,18 @@ export default function ProviderDashboard() {
                 Request Full Access
               </Button>
             </div>
-          ) : null}
+          ) : (
+            <div className="mt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                loading={unlockLoading}
+                onClick={unlockSessionKeys}
+              >
+                Unlock Session Keys
+              </Button>
+            </div>
+          )}
         </Card>
       ) : null}
 
@@ -339,9 +449,11 @@ export default function ProviderDashboard() {
               const loadingDownload = actionLoading === `open_${file.cid}`;
               const loadingView = actionLoading === `view_${file.cid}`;
               const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
-              const hasKeyMaterial = Boolean(
-                (file.encryptedKeyForProvider && file.iv) || (keyCandidate && ivCandidate)
+              const hasWrappedKey = Boolean(file.encryptedKeyForProvider && file.iv);
+              const hasLegacyKey = Boolean(
+                !isWrappedKey(keyCandidate) && keyCandidate && ivCandidate
               );
+              const hasKeyMaterial = hasWrappedKey || hasLegacyKey;
               return (
                 <div
                   key={file._id || file.cid}
@@ -389,7 +501,11 @@ export default function ProviderDashboard() {
         title={`Preview: ${preview.name}`}
         onClose={closePreview}
       >
-        {preview.type.startsWith("image/") ? (
+        {preview.isDicom ? (
+          <DicomViewer url={preview.url} />
+        ) : preview.isNifti ? (
+          <NiftiViewer url={preview.url} />
+        ) : preview.type.startsWith("image/") ? (
           <img src={preview.url} alt={preview.name} className="max-h-[70vh] w-full object-contain" />
         ) : preview.type === "application/pdf" ? (
           <iframe
