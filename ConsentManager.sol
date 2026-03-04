@@ -20,6 +20,7 @@ contract ConsentManager {
 
     event AccessRequested(address indexed patient, address indexed provider);
     event AccessGranted(address indexed patient, address indexed provider);
+    event AccessRejected(address indexed patient, address indexed provider);
     event AccessRevoked(address indexed patient, address indexed provider);
 
     function requestPatientAccess(address patient) public {
@@ -60,6 +61,7 @@ contract ConsentManager {
         require(provider != address(0), "Invalid provider address");
         require(isPendingRequest[msg.sender][provider], "No pending request");
         _removePending(msg.sender, provider);
+        emit AccessRejected(msg.sender, provider);
     }
 
     function hasAccess(address patient, address provider) public view returns (bool) {

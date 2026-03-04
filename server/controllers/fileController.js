@@ -22,6 +22,9 @@ export async function registerFile(req, res, next) {
     if (!patient) {
       return res.status(404).json({ message: "Patient not found" });
     }
+    if (patient.walletAddress.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this patientId" });
+    }
 
     const exists = await File.findOne({ cid, patientId });
     if (exists) {
@@ -40,6 +43,7 @@ export async function registerFile(req, res, next) {
     const file = await File.create({
       cid,
       patientId,
+      patientWallet: patient.walletAddress,
       fileName,
       fileType,
       iv: resolvedIv,
@@ -59,10 +63,27 @@ export async function registerFile(req, res, next) {
 export async function getFilesByPatientId(req, res, next) {
   try {
     const { patientId } = req.params;
-    const providerWallet = (req.query.providerWallet || "").toLowerCase();
+    let providerWallet = (req.query.providerWallet || "").toLowerCase();
+    if (req.user?.role === "patient") {
+      const patient = await Patient.findOne({ patientId });
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+      if (patient.walletAddress.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+        return res.status(403).json({ error: "Not owner of this patientId" });
+      }
+    }
     const files = await File.find({ patientId }).sort({ uploadedAt: -1 }).lean();
 
-    if (!providerWallet) {
+    if (req.user?.role === "provider") {
+      const tokenWallet = (req.user.walletAddress || "").toLowerCase();
+      if (providerWallet && providerWallet !== tokenWallet) {
+        return res.status(403).json({ error: "Provider wallet mismatch" });
+      }
+      providerWallet = tokenWallet;
+    }
+
+    if (!providerWallet || req.user?.role === "patient") {
       return res.status(200).json(files);
     }
 
@@ -99,6 +120,20 @@ export async function wrapKeyForProvider(req, res, next) {
     if (!file) {
       return res.status(404).json({ message: "File not found" });
     }
+    const ownerWallet = (file.patientWallet || "").toLowerCase();
+    if (!ownerWallet) {
+      const patient = await Patient.findOne({ patientId: file.patientId });
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+      if (patient.walletAddress.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+        return res.status(403).json({ error: "Not owner of this file" });
+      }
+      // Backfill legacy files that predate patientWallet.
+      file.patientWallet = patient.walletAddress;
+    } else if (ownerWallet !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this file" });
+    }
 
     const existingIndex = (file.wrappedKeys || []).findIndex(
       (entry) => (entry.providerWallet || "").toLowerCase() === normalizedProvider
@@ -124,6 +159,14 @@ export async function revokeWrappedKeys(req, res, next) {
     const { patientId, providerWallet } = req.body;
     if (!patientId || !providerWallet) {
       return res.status(400).json({ message: "patientId and providerWallet are required" });
+    }
+
+    const patient = await Patient.findOne({ patientId });
+    if (!patient) {
+      return res.status(404).json({ message: "Patient not found" });
+    }
+    if (patient.walletAddress.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this patientId" });
     }
 
     const normalizedProvider = providerWallet.toLowerCase();

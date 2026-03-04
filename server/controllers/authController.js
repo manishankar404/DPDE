@@ -2,6 +2,8 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { ethers } from "ethers";
 import Nonce from "../models/Nonce.js";
+import Patient from "../models/Patient.js";
+import Provider from "../models/Provider.js";
 
 export async function requestNonce(req, res, next) {
   try {
@@ -44,10 +46,24 @@ export async function verifySignature(req, res, next) {
       return res.status(500).json({ message: "JWT_SECRET is not configured" });
     }
 
-    const token = jwt.sign({ walletAddress }, process.env.JWT_SECRET, { expiresIn: "1h" });
+    let user = await Patient.findOne({ walletAddress });
+    let role = "patient";
+    if (!user) {
+      user = await Provider.findOne({ walletAddress });
+      role = "provider";
+    }
+    if (!user) {
+      return res.status(404).json({ error: "User not registered" });
+    }
+
+    const token = jwt.sign(
+      { walletAddress, role, userId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
     await Nonce.deleteOne({ walletAddress });
 
-    return res.status(200).json({ token });
+    return res.status(200).json({ token, role });
   } catch (error) {
     return next(error);
   }

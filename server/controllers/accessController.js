@@ -10,6 +10,10 @@ export async function requestAccess(req, res, next) {
       return res.status(400).json({ message: "cid, providerWallet, and patientId are required" });
     }
 
+    if (providerWallet.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this provider wallet" });
+    }
+
     const patient = await Patient.findOne({ patientId });
     if (!patient) {
       return res.status(404).json({ message: "Patient not found" });
@@ -46,6 +50,14 @@ export async function approveAccess(req, res, next) {
       return res.status(400).json({ message: "cid, providerWallet, and patientId are required" });
     }
 
+    const patient = await Patient.findOne({ patientId });
+    if (!patient) {
+      return res.status(404).json({ message: "Patient not found" });
+    }
+    if (patient.walletAddress.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this patientId" });
+    }
+
     const accessRequest = await AccessRequest.findOneAndUpdate(
       { cid, providerWallet, patientId },
       { status: "approved" },
@@ -70,6 +82,14 @@ export async function rejectAccess(req, res, next) {
       return res.status(400).json({ message: "cid, providerWallet, and patientId are required" });
     }
 
+    const patient = await Patient.findOne({ patientId });
+    if (!patient) {
+      return res.status(404).json({ message: "Patient not found" });
+    }
+    if (patient.walletAddress.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this patientId" });
+    }
+
     const accessRequest = await AccessRequest.findOneAndUpdate(
       { cid, providerWallet, patientId },
       { status: "rejected" },
@@ -89,6 +109,13 @@ export async function rejectAccess(req, res, next) {
 export async function getPendingByPatientId(req, res, next) {
   try {
     const { patientId } = req.params;
+    const patient = await Patient.findOne({ patientId });
+    if (!patient) {
+      return res.status(404).json({ message: "Patient not found" });
+    }
+    if (patient.walletAddress.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this patientId" });
+    }
     const requests = await AccessRequest.find({
       patientId,
       status: "pending"
@@ -102,6 +129,9 @@ export async function getPendingByPatientId(req, res, next) {
 export async function getByProviderWallet(req, res, next) {
   try {
     const { providerWallet } = req.params;
+    if (providerWallet.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this provider wallet" });
+    }
     const requests = await AccessRequest.find({ providerWallet }).sort({ createdAt: -1 });
     return res.status(200).json(requests);
   } catch (error) {

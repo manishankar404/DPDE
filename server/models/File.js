@@ -4,6 +4,7 @@ const fileSchema = new mongoose.Schema(
   {
     cid: { type: String, required: true, trim: true },
     patientId: { type: String, required: true, trim: true },
+    patientWallet: { type: String, required: true, trim: true },
     fileName: { type: String, required: true, trim: true },
     fileType: { type: String, default: "", trim: true },
     iv: { type: String, default: "" },

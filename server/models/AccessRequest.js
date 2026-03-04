@@ -5,9 +5,11 @@ const accessRequestSchema = new mongoose.Schema(
     cid: { type: String, required: true, trim: true },
     providerWallet: { type: String, required: true, trim: true },
     patientId: { type: String, required: true, trim: true },
+    patientWallet: { type: String, default: "", trim: true },
+    txHash: { type: String, default: "", trim: true },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected"],
+      enum: ["pending", "approved", "rejected", "revoked"],
       default: "pending"
     },
     createdAt: { type: Date, default: Date.now }
@@ -19,5 +21,6 @@ accessRequestSchema.index(
   { cid: 1, providerWallet: 1, patientId: 1 },
   { unique: true }
 );
+accessRequestSchema.index({ txHash: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model("AccessRequest", accessRequestSchema);

@@ -5,7 +5,8 @@ import {
   revokeWrappedKeys,
   wrapKeyForProvider
 } from "../controllers/fileController.js";
-import { authenticate } from "../middleware/authMiddleware.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { authorizeRole } from "../middleware/authorizeRole.js";
 
 const router = Router();
 
@@ -14,9 +15,9 @@ router.use((req, res, next) => {
   next();
 });
 
-router.post("/register", authenticate, registerFile);
-router.post("/wrap-key", authenticate, wrapKeyForProvider);
-router.post("/revoke-key", authenticate, revokeWrappedKeys);
-router.get("/:patientId", authenticate, getFilesByPatientId);
+router.post("/register", authenticate, authorizeRole("patient"), registerFile);
+router.post("/wrap-key", authenticate, authorizeRole("patient"), wrapKeyForProvider);
+router.post("/revoke-key", authenticate, authorizeRole("patient"), revokeWrappedKeys);
+router.get("/:patientId", authenticate, authorizeRole("patient", "provider"), getFilesByPatientId);
 
 export default router;

@@ -4,6 +4,7 @@ import { CONSENT_CONTRACT_ADDRESS } from "./config";
 const abi = [
   "event AccessRequested(address indexed patient, address indexed provider)",
   "event AccessGranted(address indexed patient, address indexed provider)",
+  "event AccessRejected(address indexed patient, address indexed provider)",
   "event AccessRevoked(address indexed patient, address indexed provider)",
   "function requestPatientAccess(address patient)",
   "function grantAccess(address provider)",
@@ -167,9 +168,10 @@ export async function getMyPatientAccessStatus(patientAddress) {
   if (approved) return "approved";
   if (pending) return "pending";
 
-  const [requestedLogs, grantedLogs, revokedLogs] = await Promise.all([
+  const [requestedLogs, grantedLogs, rejectedLogs, revokedLogs] = await Promise.all([
     contract.queryFilter(contract.filters.AccessRequested(patientAddress, providerAddress)),
     contract.queryFilter(contract.filters.AccessGranted(patientAddress, providerAddress)),
+    contract.queryFilter(contract.filters.AccessRejected(patientAddress, providerAddress)),
     contract.queryFilter(contract.filters.AccessRevoked(patientAddress, providerAddress))
   ]);
 
@@ -178,7 +180,8 @@ export async function getMyPatientAccessStatus(patientAddress) {
 
   const lastGranted = getLatestLog(grantedLogs);
   const lastRevoked = getLatestLog(revokedLogs);
-  const lastDecision = getLatestLog([lastGranted, lastRevoked].filter(Boolean));
+  const lastRejected = getLatestLog(rejectedLogs);
+  const lastDecision = getLatestLog([lastGranted, lastRejected, lastRevoked].filter(Boolean));
 
   if (!lastDecision) return "denied";
   return lastDecision.fragment.name === "AccessGranted" ? "approved" : "denied";

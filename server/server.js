@@ -7,6 +7,7 @@ import authRoutes from "./routes/authRoutes.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import patientRoutes from "./routes/patientRoutes.js";
 import providerRoutes from "./routes/providerRoutes.js";
+import { startBlockchainListener } from "./services/blockchainListener.js";
 
 dotenv.config();
 
@@ -44,6 +45,7 @@ app.use((err, req, res, _next) => {
 async function startServer() {
   try {
     await connectDB();
+    startBlockchainListener();
     app.listen(PORT, () => {
       console.log(`Server listening on port ${PORT}`);
     });
