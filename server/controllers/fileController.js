@@ -1,5 +1,20 @@
+import { ethers } from "ethers";
 import File from "../models/File.js";
 import Patient from "../models/Patient.js";
+
+const CONSENT_ABI = [
+  "function hasAccess(address patient, address provider) view returns (bool)"
+];
+
+function getConsentContract() {
+  const rpcUrl = process.env.SEPOLIA_RPC;
+  const contractAddress = process.env.CONTRACT_ADDRESS;
+  if (!rpcUrl || !contractAddress) {
+    throw new Error("Blockchain RPC or contract address not configured.");
+  }
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  return new ethers.Contract(contractAddress, CONSENT_ABI, provider);
+}
 
 export async function registerFile(req, res, next) {
   try {
@@ -81,6 +96,15 @@ export async function getFilesByPatientId(req, res, next) {
         return res.status(403).json({ error: "Provider wallet mismatch" });
       }
       providerWallet = tokenWallet;
+      const patient = await Patient.findOne({ patientId });
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+      const contract = getConsentContract();
+      const hasAccess = await contract.hasAccess(patient.walletAddress, providerWallet);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access revoked on blockchain" });
+      }
     }
 
     if (!providerWallet || req.user?.role === "patient") {

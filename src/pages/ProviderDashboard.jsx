@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatApiError, getFilesByPatient, getPatientById } from "../api";
-import {
-  checkMyAccess,
-  getCurrentWalletAddress,
-  requestPatientAccess
-} from "../blockchain/consent";
+import { getCurrentWalletAddress, hasAccess, requestPatientAccess } from "../blockchain/consent";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
@@ -207,6 +203,14 @@ export default function ProviderDashboard() {
     }
   }
 
+  async function ensureBlockchainAccess(patientWallet, providerWallet) {
+    const allowed = await hasAccess(patientWallet, providerWallet);
+    if (!allowed) {
+      await refreshAccessStatus(patientWallet);
+      throw new Error("Access revoked by patient.");
+    }
+  }
+
   async function getDecryptionMaterials(file, providerAddress) {
     let key = [];
     let iv = [];
@@ -255,11 +259,7 @@ export default function ProviderDashboard() {
 
     try {
       const providerAddress = await getCurrentWalletAddress();
-      const allowed = await checkMyAccess(patientAddress);
-      if (!allowed) {
-        await refreshAccessStatus(patientAddress);
-        throw new Error("Access is not approved for this patient.");
-      }
+      await ensureBlockchainAccess(patientAddress, providerAddress);
 
       const { key, iv } = await getDecryptionMaterials(file, providerAddress);
       if (!key.length || !iv.length) {
@@ -333,11 +333,7 @@ export default function ProviderDashboard() {
     setUnlockLoading(true);
     try {
       const providerAddress = await getCurrentWalletAddress();
-      const allowed = await checkMyAccess(patientAddress);
-      if (!allowed) {
-        await refreshAccessStatus(patientAddress);
-        throw new Error("Access is not approved for this patient.");
-      }
+      await ensureBlockchainAccess(patientAddress, providerAddress);
 
       const filesNeedingKeys = files.filter(
         (file) => file.encryptedKeyForProvider && file.iv
