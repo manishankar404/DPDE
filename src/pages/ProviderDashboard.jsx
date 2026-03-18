@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatApiError, getFilesByPatient, getPatientById } from "../api";
-import { getCurrentWalletAddress, hasAccess, requestPatientAccess } from "../blockchain/consent";
+import { getCurrentWalletAddress, hasAccess, requestPatientAccess, getAccessExpiry } from "../blockchain/consent";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
@@ -104,6 +104,7 @@ export default function ProviderDashboard() {
   const [actionLoading, setActionLoading] = useState("");
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [unlockStats, setUnlockStats] = useState({ total: 0, cached: 0 });
+  const [accessExpiry, setAccessExpiry] = useState(0);
   const [preview, setPreview] = useState({
     open: false,
     url: "",
@@ -134,7 +135,31 @@ export default function ProviderDashboard() {
   useEffect(() => {
     keyCacheRef.current.clear();
     setUnlockStats({ total: 0, cached: 0 });
+    setAccessExpiry(0);
   }, [patientAddress]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadExpiry() {
+      if (!patientAddress || patientAccessStatus !== "approved") {
+        if (active) setAccessExpiry(0);
+        return;
+      }
+      try {
+        const providerAddress = user?.walletAddress || (await getCurrentWalletAddress());
+        const expiry = await getAccessExpiry(patientAddress, providerAddress);
+        if (active) setAccessExpiry(Number(expiry) || 0);
+      } catch {
+        if (active) setAccessExpiry(0);
+      }
+    }
+
+    loadExpiry();
+    return () => {
+      active = false;
+    };
+  }, [patientAddress, patientAccessStatus, user?.walletAddress]);
 
   function closePreview() {
     if (preview.url) {
@@ -396,6 +421,11 @@ export default function ProviderDashboard() {
             </p>
             <StatusBadge status={patientAccessStatus || "unknown"} />
             <span className="text-xs text-slate-600">{accessBadge}</span>
+            {accessExpiry > 0 ? (
+              <span className="text-xs text-slate-500">
+                Access valid until: {new Date(accessExpiry * 1000).toLocaleString()}
+              </span>
+            ) : null}
             {unlockStats.total > 0 ? (
               <span className="text-xs text-slate-500">
                 Session keys: {unlockStats.cached}/{unlockStats.total}
@@ -539,3 +569,4 @@ export default function ProviderDashboard() {
     </div>
   );
 }
+

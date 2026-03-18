@@ -3,14 +3,15 @@ import { CONSENT_CONTRACT_ADDRESS } from "./config";
 
 const abi = [
   "event AccessRequested(address indexed patient, address indexed provider)",
-  "event AccessGranted(address indexed patient, address indexed provider)",
+  "event AccessGranted(address indexed patient, address indexed provider, uint256 expiry)",
   "event AccessRejected(address indexed patient, address indexed provider)",
   "event AccessRevoked(address indexed patient, address indexed provider)",
   "function requestPatientAccess(address patient)",
-  "function grantAccess(address provider)",
+  "function grantAccess(address provider, uint256 duration)",
   "function revokeAccess(address provider)",
   "function rejectAccessRequest(address provider)",
   "function hasAccess(address patient, address provider) view returns (bool)",
+  "function getAccessExpiry(address patient, address provider) view returns (uint256)",
   "function getPendingRequests(address patient) view returns (address[])",
   "function getGrantedProviders(address patient) view returns (address[])",
   "function isPending(address patient, address provider) view returns (bool)"
@@ -118,11 +119,11 @@ export async function requestPatientAccess(patientAddress) {
   await tx.wait();
 }
 
-export async function grantAccess(providerAddress) {
-  const contract = await getContract();
-  const tx = await contract.grantAccess(providerAddress);
-  await tx.wait();
-}
+export async function grantAccess(providerAddress, duration) {
+    const contract = await getContract();
+    const tx = await contract.grantAccess(providerAddress, duration);
+    await tx.wait();
+  }
 
 export async function revokeAccess(providerAddress) {
   const contract = await getContract();
@@ -139,6 +140,11 @@ export async function rejectAccessRequest(providerAddress) {
 export async function hasAccess(patientAddress, providerAddress) {
   const contract = await getContract();
   return contract.hasAccess(patientAddress, providerAddress);
+}
+
+export async function getAccessExpiry(patientAddress, providerAddress) {
+  const contract = await getContract();
+  return contract.getAccessExpiry(patientAddress, providerAddress);
 }
 
 export async function checkMyAccess(patientAddress) {
@@ -167,7 +173,12 @@ export async function getMyPatientAccessStatus(patientAddress) {
 
   if (approved) return "approved";
   if (pending) return "pending";
-
+  
+  const expiry = await contract.getAccessExpiry(patientAddress, providerAddress);
+  if (Number(expiry) > 0 && Date.now() / 1000 > Number(expiry)) {
+    return "denied";
+  }
+  
   const [requestedLogs, grantedLogs, rejectedLogs, revokedLogs] = await Promise.all([
     contract.queryFilter(contract.filters.AccessRequested(patientAddress, providerAddress)),
     contract.queryFilter(contract.filters.AccessGranted(patientAddress, providerAddress)),
@@ -227,3 +238,5 @@ export async function getGrantedProviders(patientAddress) {
     .filter(([, value]) => value.type === "granted")
     .map(([provider]) => provider);
 }
+
+

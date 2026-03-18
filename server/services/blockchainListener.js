@@ -6,7 +6,7 @@ dotenv.config();
 
 const abi = [
   "event AccessRequested(address indexed patient, address indexed provider)",
-  "event AccessGranted(address indexed patient, address indexed provider)",
+  "event AccessGranted(address indexed patient, address indexed provider, uint256 expiry)",
   "event AccessRejected(address indexed patient, address indexed provider)",
   "event AccessRevoked(address indexed patient, address indexed provider)"
 ];
@@ -50,7 +50,7 @@ export function startBlockchainListener() {
     }
   });
 
-  contract.on("AccessGranted", async (patient, providerWallet, event) => {
+  contract.on("AccessGranted", async (patient, providerWallet, expiry, event) => {
     try {
       const txHash = event?.log?.transactionHash || "";
       if (txHash) {
@@ -62,7 +62,7 @@ export function startBlockchainListener() {
           patientWallet: patient.toLowerCase(),
           providerWallet: providerWallet.toLowerCase()
         },
-        { status: "approved", txHash },
+        { status: "approved", expiry: Number(expiry) || 0, txHash },
         { upsert: true, returnDocument: "after" }
       );
     } catch (error) {
@@ -82,7 +82,7 @@ export function startBlockchainListener() {
           patientWallet: patient.toLowerCase(),
           providerWallet: providerWallet.toLowerCase()
         },
-        { status: "rejected", txHash },
+        { status: "rejected", expiry: 0, txHash },
         { upsert: true, returnDocument: "after" }
       );
     } catch (error) {
@@ -102,7 +102,7 @@ export function startBlockchainListener() {
           patientWallet: patient.toLowerCase(),
           providerWallet: providerWallet.toLowerCase()
         },
-        { status: "revoked", txHash },
+        { status: "revoked", expiry: 0, txHash },
         { upsert: true, returnDocument: "after" }
       );
     } catch (error) {
@@ -110,3 +110,4 @@ export function startBlockchainListener() {
     }
   });
 }
+

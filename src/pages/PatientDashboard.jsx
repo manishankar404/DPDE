@@ -9,7 +9,7 @@ import {
   revokeWrappedKeys,
   wrapKeyForProvider
 } from "../api";
-import { ensureSepolia, grantAccess, rejectAccessRequest, revokeAccess } from "../blockchain/consent";
+import { ensureSepolia, grantAccess, rejectAccessRequest, revokeAccess, getAccessExpiry } from "../blockchain/consent";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
@@ -94,6 +94,7 @@ const IPFS_GATEWAYS = [
   "https://cloudflare-ipfs.com/ipfs/",
   "https://w3s.link/ipfs/"
 ];
+const DEFAULT_ACCESS_DURATION = 24 * 60 * 60;
 let lastHealthyGateway = IPFS_GATEWAYS[0];
 
 async function fetchIpfsWithFallback(cid) {
@@ -138,6 +139,7 @@ export default function PatientDashboard() {
   const [actionLoadingKey, setActionLoadingKey] = useState("");
   const [fileActionLoading, setFileActionLoading] = useState("");
   const [accessActionLoading, setAccessActionLoading] = useState("");
+  const [accessExpiryByProvider, setAccessExpiryByProvider] = useState({});
   const [latestCid, setLatestCid] = useState("");
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [unlockStats, setUnlockStats] = useState({ total: 0, cached: 0 });
@@ -215,6 +217,36 @@ export default function PatientDashboard() {
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.patientId, user?.walletAddress]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadExpiries() {
+      if (!user?.walletAddress || grantedProviders.length === 0) {
+        if (active) setAccessExpiryByProvider({});
+        return;
+      }
+
+      try {
+        const entries = await Promise.all(
+          grantedProviders.map(async (provider) => {
+            const expiry = await getAccessExpiry(user.walletAddress, provider);
+            return [provider, Number(expiry) || 0];
+          })
+        );
+        if (active) {
+          setAccessExpiryByProvider(Object.fromEntries(entries));
+        }
+      } catch {
+        if (active) setAccessExpiryByProvider({});
+      }
+    }
+
+    loadExpiries();
+    return () => {
+      active = false;
+    };
+  }, [grantedProviders, user?.walletAddress]);
 
   function normalizeFiles(input) {
     if (!input) return [];
@@ -410,7 +442,7 @@ export default function PatientDashboard() {
     setActionLoadingKey(provider);
     try {
       await wrapKeysForProvider(provider);
-      await grantAccess(provider);
+      await grantAccess(provider, DEFAULT_ACCESS_DURATION);
       addToast("Provider access granted.", "success");
       await Promise.all([
         refreshPendingRequests(user.walletAddress),
@@ -756,6 +788,7 @@ export default function PatientDashboard() {
                 <tr className="border-b border-slate-200 text-slate-500">
                   <th className="py-2">Provider Address</th>
                   <th className="py-2">Status</th>
+                  <th className="py-2">Expires</th>
                   <th className="py-2">Actions</th>
                 </tr>
               </thead>
@@ -768,6 +801,11 @@ export default function PatientDashboard() {
                       <td className="py-3 font-mono text-xs">{provider}</td>
                       <td className="py-3">
                         <StatusBadge status="approved" />
+                      </td>
+                      <td className="py-3 text-xs text-slate-600">
+                        {accessExpiryByProvider[provider]
+                          ? new Date(accessExpiryByProvider[provider] * 1000).toLocaleString()
+                          : "Unknown"}
                       </td>
                       <td className="py-3">
                         <div className="flex gap-2">
@@ -913,3 +951,4 @@ export default function PatientDashboard() {
     </div>
   );
 }
+
