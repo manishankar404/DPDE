@@ -185,19 +185,17 @@ export default function ProviderDashboard() {
     setPatientIdError("");
     setLoadingSearch(true);
     try {
-      const providerWallet =
-        user?.walletAddress || (await getCurrentWalletAddress());
-      const [patient, fileList] = await Promise.all([
-        getPatientById(patientId.trim()),
-        getFilesByPatient(patientId.trim(), providerWallet)
-      ]);
+      const trimmedId = patientId.trim();
+      const providerWallet = user?.walletAddress || (await getCurrentWalletAddress());
 
+      // Fetch patient first so the access UI renders even if file listing is forbidden.
+      const patient = await getPatientById(trimmedId);
       setPatientAddress(patient.walletAddress);
-      setFiles(Array.isArray(fileList) ? fileList : []);
+
       const status = await refreshAccessStatus(patient.walletAddress);
       if (!status) {
         console.error("[ProviderDashboard] Access status unavailable", {
-          patientId: patientId.trim(),
+          patientId: trimmedId,
           patientAddress: patient.walletAddress
         });
         addToast(
@@ -205,6 +203,16 @@ export default function ProviderDashboard() {
           "warning"
         );
       }
+
+      // Only fetch encrypted file metadata after blockchain approval.
+      // Otherwise the backend will 403 (source-of-truth enforcement).
+      if (status !== "approved") {
+        setFiles([]);
+        return;
+      }
+
+      const fileList = await getFilesByPatient(trimmedId, providerWallet);
+      setFiles(Array.isArray(fileList) ? fileList : []);
     } catch (error) {
       setFiles([]);
       setPatientAddress("");
