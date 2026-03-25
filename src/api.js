@@ -1,5 +1,21 @@
 export const API_BASE_URL = "http://localhost:5000/api";
 const AUTH_STORAGE_KEY = "dpde_auth_session";
+const UNAUTHORIZED_EVENT = "dpde:unauthorized";
+
+function emitUnauthorized() {
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    }
+  } catch {
+    // ignore
+  }
+}
 
 function getStoredToken() {
   try {
@@ -26,8 +42,11 @@ async function parseResponse(response) {
   const payload = isJson ? await response.json() : null;
 
   if (!response.ok) {
+    if (response.status === 401) {
+      emitUnauthorized();
+    }
     const message =
-      payload?.message || `Request failed with status ${response.status}.`;
+      payload?.message || payload?.error || `Request failed with status ${response.status}.`;
     const requestError = new Error(message);
     requestError.status = response.status;
     requestError.payload = payload;
@@ -65,6 +84,17 @@ export function getPatientById(patientId) {
   return request(`/patients/${encodeURIComponent(patientId)}`);
 }
 
+export function getMyPatientProfile() {
+  return request("/patients/me");
+}
+
+export function updateMyPatientProfile(data) {
+  return request("/patients/me", {
+    method: "PUT",
+    body: JSON.stringify(data)
+  });
+}
+
 export function registerProvider(data) {
   return request("/providers/register", {
     method: "POST",
@@ -74,6 +104,17 @@ export function registerProvider(data) {
 
 export function getProviderByWallet(walletAddress) {
   return request(`/providers/${encodeURIComponent(walletAddress)}`);
+}
+
+export function getMyProviderProfile() {
+  return request("/providers/me");
+}
+
+export function updateMyProviderProfile(data) {
+  return request("/providers/me", {
+    method: "PUT",
+    body: JSON.stringify(data)
+  });
 }
 
 export function updateProviderEncryptionKey(walletAddress, encryptionPublicKey) {
@@ -154,4 +195,29 @@ export function revokeWrappedKeys(data) {
     method: "POST",
     body: JSON.stringify(data)
   });
+}
+
+export function getPatientAuditLogs(walletAddress, options = {}) {
+  const query = options?.limit ? `?limit=${encodeURIComponent(options.limit)}` : "";
+  return request(`/audit/patient/${encodeURIComponent(walletAddress)}${query}`, {
+    cache: "no-store"
+  });
+}
+
+export function logProviderFileAction(data) {
+  return request("/audit/file-action", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export function resolveProfiles(wallets = []) {
+  return request("/profiles/resolve", {
+    method: "POST",
+    body: JSON.stringify({ wallets })
+  });
+}
+
+export function resolveProfile(walletAddress) {
+  return request(`/profiles/resolve/${encodeURIComponent(walletAddress)}`);
 }

@@ -1,40 +1,52 @@
 import { Outlet, useNavigate } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import Navbar from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
-import StatusBadge from "../components/StatusBadge";
 import { useAuth } from "../context/AuthContext";
-
-function truncateWallet(wallet = "") {
-  if (!wallet || wallet.length < 10) return wallet || "Not available";
-  return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
-}
 
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState(false);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  const roleLabel = useMemo(
-    () => (user?.role ? `${user.role[0].toUpperCase()}${user.role.slice(1)}` : "User"),
-    [user?.role]
-  );
+  const [isDesktop, setIsDesktop] = useState(false);
 
   function handleLogout() {
     logout();
     navigate("/");
   }
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  function openSidebarFromNavbar() {
+    if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
+      setDesktopSidebarOpen(true);
+      return;
+    }
+    setMobileOpen(true);
+  }
+
   return (
     <div className="flex min-h-screen bg-healthcare-bg">
-      <div className="hidden md:block">
-        <Sidebar
-          role={user?.role}
-          collapsed={collapsed}
-          onToggle={() => setCollapsed((value) => !value)}
-          onLogout={handleLogout}
-        />
-      </div>
+      {desktopSidebarOpen ? (
+        <div className="hidden md:block">
+          <div className="sticky top-0 h-screen">
+            <Sidebar
+              role={user?.role}
+              collapsed={false}
+              onToggle={() => setDesktopSidebarOpen(false)}
+              onLogout={handleLogout}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {mobileOpen ? (
         <div className="fixed inset-0 z-40 md:hidden">
@@ -55,30 +67,12 @@ export default function DashboardLayout() {
       ) : null}
 
       <div className="flex min-h-screen flex-1 flex-col">
-        <header className="border-b border-slate-200 bg-white px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 px-2 py-1 text-sm md:hidden"
-                onClick={() => setMobileOpen(true)}
-              >
-                Menu
-              </button>
-              <h1 className="text-lg font-semibold text-slate-900">Healthcare Data Console</h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                Wallet: {truncateWallet(user?.walletAddress)}
-              </span>
-              <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800">
-                Network: Sepolia
-              </span>
-              <StatusBadge status={roleLabel} />
-            </div>
-          </div>
-        </header>
-        <div className="p-4 md:p-6">
+        <Navbar
+          variant="dashboard"
+          menuOpen={mobileOpen || (isDesktop && desktopSidebarOpen)}
+          onMenuClick={openSidebarFromNavbar}
+        />
+        <div className="flex-1 p-4 md:p-6">
           <Outlet />
         </div>
       </div>

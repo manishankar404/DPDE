@@ -3,9 +3,13 @@ import { encrypt } from "@metamask/eth-sig-util";
 import { Buffer } from "buffer";
 import {
   formatApiError,
+  getPatientAuditLogs,
+  getMyPatientProfile,
   getFilesByPatient,
   getProviderByWallet,
   registerFile,
+  resolveProfiles,
+  updateMyPatientProfile,
   revokeWrappedKeys,
   wrapKeyForProvider
 } from "../api";
@@ -13,6 +17,7 @@ import { ensureSepolia, grantAccess, rejectAccessRequest, revokeAccess, getAcces
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
+import Input from "../components/Input";
 import Loader from "../components/Loader";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
@@ -24,6 +29,27 @@ import { useAuth } from "../context/AuthContext";
 import { decryptBlob } from "../decrypt";
 import { encryptFile } from "../encrypt";
 import { uploadToIPFS } from "../upload";
+import { formatActionLog, formatProvider, shortenWallet } from "../utils/formatters";
+
+const ACTION_BADGE_STYLES = {
+  UPLOAD: "bg-blue-100 text-blue-800 border-blue-200",
+  REQUEST_ACCESS: "bg-amber-100 text-amber-800 border-amber-200",
+  APPROVE: "bg-green-100 text-green-800 border-green-200",
+  REJECT: "bg-red-100 text-red-800 border-red-200",
+  REVOKE: "bg-orange-100 text-orange-800 border-orange-200",
+  VIEW_FILE: "bg-purple-100 text-purple-800 border-purple-200",
+  DOWNLOAD_FILE: "bg-teal-100 text-teal-800 border-teal-200",
+  DEFAULT: "bg-slate-100 text-slate-700 border-slate-200"
+};
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 function decodeArray(encoded) {
   if (!encoded) return [];
@@ -125,7 +151,7 @@ async function fetchIpfsWithFallback(cid) {
 }
 
 export default function PatientDashboard() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { pendingRequests, grantedProviders, refreshPendingRequests, refreshGrantedProviders } =
     useAccess();
   const fileInputRef = useRef(null);
@@ -143,6 +169,14 @@ export default function PatientDashboard() {
   const [latestCid, setLatestCid] = useState("");
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [unlockStats, setUnlockStats] = useState({ total: 0, cached: 0 });
+  const [logs, setLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [logFilter, setLogFilter] = useState("all");
+  const [exportingLogs, setExportingLogs] = useState(false);
+  const [profilesByWallet, setProfilesByWallet] = useState({});
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: "", email: "", phone: "" });
+  const [savingProfile, setSavingProfile] = useState(false);
   const [uploadPreview, setUploadPreview] = useState({ files: [], blocked: [] });
   const [preview, setPreview] = useState({
     open: false,
@@ -175,6 +209,32 @@ export default function PatientDashboard() {
     setUnlockStats({ total: 0, cached: 0 });
   }, [user?.walletAddress]);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadMyProfile() {
+      if (!user?.walletAddress) return;
+      try {
+        const profile = await getMyPatientProfile();
+        if (!active || !profile) return;
+        updateUser({
+          name: profile.name,
+          email: profile.email,
+          phone: profile.phone,
+          patientId: profile.patientId,
+          walletAddress: profile.walletAddress
+        });
+      } catch {
+        // Ignore profile fetch failures; dashboard can still run from cached session.
+      }
+    }
+
+    loadMyProfile();
+    return () => {
+      active = false;
+    };
+  }, [user?.walletAddress, updateUser]);
+
   function closePreview() {
     if (preview.url) {
       URL.revokeObjectURL(preview.url);
@@ -205,9 +265,185 @@ export default function PatientDashboard() {
     }
   }
 
+  function openProfileEditor() {
+    setProfileForm({
+      name: user?.name || "",
+      email: user?.email || "",
+      phone: user?.phone || ""
+    });
+    setProfileModalOpen(true);
+  }
+
+  async function saveProfile() {
+    if (!profileForm.name.trim()) {
+      addToast("Name is required.", "error");
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const updated = await updateMyPatientProfile({
+        name: profileForm.name.trim(),
+        email: profileForm.email.trim(),
+        phone: profileForm.phone.trim()
+      });
+      updateUser({
+        name: updated?.name || profileForm.name.trim(),
+        email: updated?.email || profileForm.email.trim(),
+        phone: updated?.phone || profileForm.phone.trim()
+      });
+      addToast("Profile updated.", "success");
+      setProfileModalOpen(false);
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to update profile."), "error");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  async function loadAuditLogs() {
+    const wallet = user?.walletAddress;
+    if (!wallet) return;
+    setLoadingLogs(true);
+    try {
+      const list = await getPatientAuditLogs(wallet);
+      setLogs(Array.isArray(list) ? list : []);
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to load activity history."), "error");
+      setLogs([]);
+    } finally {
+      setLoadingLogs(false);
+    }
+  }
+
+  async function downloadAuditPdf() {
+    const wallet = user?.walletAddress;
+    if (!wallet) return;
+
+    setExportingLogs(true);
+    try {
+      const list = await getPatientAuditLogs(wallet, { limit: 1000 });
+      const exportLogs = Array.isArray(list) ? list : [];
+
+      const rowsHtml = exportLogs
+        .map((log) => {
+          const action = escapeHtml(log.action || "");
+          const timestamp = escapeHtml(
+            log.timestamp ? new Date(log.timestamp).toLocaleString() : ""
+          );
+          const description = escapeHtml(formatActionLog(log) || "");
+
+          return `
+            <tr>
+              <td>${timestamp}</td>
+              <td><span class="badge badge-${action}">${action || "UNKNOWN"}</span></td>
+              <td>${description}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      const html = `
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>DPDE Activity History</title>
+            <style>
+              @page { size: A4; margin: 14mm; }
+              body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; color: #0f172a; }
+              h1 { font-size: 16px; margin: 0 0 8px; }
+              .sub { font-size: 12px; color: #475569; margin: 0 0 14px; }
+              table { width: 100%; border-collapse: collapse; font-size: 11px; }
+              th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
+              th { background: #f8fafc; text-align: left; }
+              .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+              .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #e2e8f0; font-weight: 600; }
+              .badge-UPLOAD { background: #dbeafe; border-color: #bfdbfe; color: #1e40af; }
+              .badge-REQUEST_ACCESS { background: #fef3c7; border-color: #fde68a; color: #92400e; }
+              .badge-APPROVE { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
+              .badge-REJECT { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
+              .badge-REVOKE { background: #ffedd5; border-color: #fed7aa; color: #9a3412; }
+              .badge-VIEW_FILE { background: #ede9fe; border-color: #ddd6fe; color: #5b21b6; }
+              .badge-DOWNLOAD_FILE { background: #ccfbf1; border-color: #99f6e4; color: #115e59; }
+              .badge-UNKNOWN { background: #f1f5f9; border-color: #e2e8f0; color: #334155; }
+              @media print { .sub { page-break-after: avoid; } tr { page-break-inside: avoid; } }
+            </style>
+          </head>
+          <body>
+            <h1>Recent Activity</h1>
+            <p class="sub">
+              Patient: ${escapeHtml(shortenWallet(wallet))} • Generated: ${escapeHtml(
+                new Date().toLocaleString()
+              )} • Records: ${exportLogs.length}
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 16%;">Timestamp</th>
+                  <th style="width: 12%;">Action</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </body>
+        </html>
+      `;
+
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      iframe.style.opacity = "0";
+      iframe.setAttribute("aria-hidden", "true");
+      document.body.appendChild(iframe);
+
+      const frameWindow = iframe.contentWindow;
+      const frameDocument = iframe.contentDocument || frameWindow?.document;
+      if (!frameWindow || !frameDocument) {
+        iframe.remove();
+        throw new Error("Unable to open print frame.");
+      }
+
+      frameDocument.open();
+      frameDocument.write(html);
+      frameDocument.close();
+
+      const cleanup = () => {
+        try {
+          iframe.remove();
+        } catch {
+          // ignore
+        }
+      };
+
+      const triggerPrint = () => {
+        try {
+          frameWindow.focus();
+          frameWindow.print();
+        } finally {
+          // Some browsers don't reliably fire `afterprint` from iframes.
+          setTimeout(cleanup, 1000);
+        }
+      };
+
+      frameWindow.onafterprint = cleanup;
+      iframe.onload = triggerPrint;
+      setTimeout(triggerPrint, 600);
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to export activity history."), "error");
+    } finally {
+      setExportingLogs(false);
+    }
+  }
+
   async function refreshAll() {
     await Promise.all([
       loadFiles(),
+      loadAuditLogs(),
       refreshPendingRequests(user?.walletAddress),
       refreshGrantedProviders(user?.walletAddress)
     ]);
@@ -217,6 +453,38 @@ export default function PatientDashboard() {
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.patientId, user?.walletAddress]);
+
+  useEffect(() => {
+    const wallets = Array.from(new Set([...(pendingRequests || []), ...(grantedProviders || [])]))
+      .map((wallet) => String(wallet || "").toLowerCase())
+      .filter(Boolean);
+
+    if (wallets.length === 0) {
+      setProfilesByWallet({});
+      return;
+    }
+
+    resolveProfiles(wallets)
+      .then((response) => {
+        const profiles = response?.profiles || {};
+        setProfilesByWallet(profiles && typeof profiles === "object" ? profiles : {});
+      })
+      .catch(() => {
+        setProfilesByWallet({});
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRequests, grantedProviders]);
+
+  const filteredLogs = useMemo(() => {
+    if (!Array.isArray(logs)) return [];
+    if (logFilter === "uploads") return logs.filter((log) => log.action === "UPLOAD");
+    if (logFilter === "requests") return logs.filter((log) => log.action === "REQUEST_ACCESS");
+    if (logFilter === "approvals")
+      return logs.filter((log) => ["APPROVE", "REJECT", "REVOKE"].includes(log.action));
+    if (logFilter === "file")
+      return logs.filter((log) => ["VIEW_FILE", "DOWNLOAD_FILE"].includes(log.action));
+    return logs;
+  }, [logs, logFilter]);
 
   useEffect(() => {
     let active = true;
@@ -629,19 +897,43 @@ export default function PatientDashboard() {
 
   return (
     <div className="space-y-6">
+      <Card title="Your Profile">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={openProfileEditor}>
+            Edit Profile
+          </Button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <div className="text-xs font-medium text-slate-500">Name</div>
+            <div className="text-sm font-semibold text-slate-900">{user?.name || "Patient"}</div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-slate-500">Patient ID</div>
+            <div className="text-sm text-slate-700">{user?.patientId || "—"}</div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-slate-500">Wallet</div>
+            <div className="font-mono text-sm text-slate-700">
+              {shortenWallet(user?.walletAddress) || "—"}
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <p className="text-sm text-slate-500">Total Files</p>
           <p className="mt-2 text-2xl font-bold text-healthcare-blue">{metrics.totalFiles}</p>
         </Card>
         <Card>
-          <p className="text-sm text-slate-500">Pending Provider Requests</p>
+          <p className="text-sm text-slate-500">Doctor Requests</p>
           <p className="mt-2 text-2xl font-bold text-healthcare-warning">
             {metrics.pendingRequests}
           </p>
         </Card>
         <Card>
-          <p className="text-sm text-slate-500">Active Provider Access</p>
+          <p className="text-sm text-slate-500">Doctors with Access</p>
           <p className="mt-2 text-2xl font-bold text-healthcare-teal">
             {metrics.activeProviders}
           </p>
@@ -714,129 +1006,256 @@ export default function PatientDashboard() {
           </div>
         ) : null}
 
-        {latestCid ? (
-          <p className="mt-3 text-xs text-slate-600">
-            Latest CID: <span className="font-mono">{latestCid}</span>
-          </p>
-        ) : null}
       </Card>
 
-      <Card title="Provider Access Requests" subtitle="Approve or reject full patient-record access">
+      <Card title="Doctor Access Requests" subtitle="Approve or reject access requests">
         {pendingRequests.length === 0 ? (
           <EmptyState
             title="No pending provider requests"
             description="New access requests will appear here."
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="py-2">Provider Address</th>
-                  <th className="py-2">Status</th>
-                  <th className="py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendingRequests.map((provider) => {
-                  const isBusy = actionLoadingKey === provider;
-                  return (
-                    <tr key={provider} className="border-b border-slate-100">
-                      <td className="py-3 font-mono text-xs">{provider}</td>
-                      <td className="py-3">
-                        <StatusBadge status="pending" />
-                      </td>
-                      <td className="py-3">
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="success"
-                            loading={isBusy}
-                            onClick={() => approveProvider(provider)}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="danger"
-                            loading={isBusy}
-                            onClick={() => rejectProvider(provider)}
-                          >
-                            Reject
-                          </Button>
+          <>
+            <div className="grid gap-3 md:hidden">
+              {pendingRequests.map((provider) => {
+                const isBusy = actionLoadingKey === provider;
+                const profile = profilesByWallet[String(provider || "").toLowerCase()] || {};
+                const providerLabel = formatProvider({
+                  providerWallet: provider,
+                  providerName: profile.name,
+                  providerDisplay: profile.display
+                });
+
+                return (
+                  <div
+                    key={provider}
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-slate-500">Doctor</div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">
+                          {providerLabel}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                      <StatusBadge status="pending" />
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <Button
+                        type="button"
+                        variant="success"
+                        className="w-full"
+                        loading={isBusy}
+                        onClick={() => approveProvider(provider)}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        className="w-full"
+                        loading={isBusy}
+                        onClick={() => rejectProvider(provider)}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500">
+                    <th className="py-2">Doctor</th>
+                    <th className="py-2">Status</th>
+                    <th className="py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingRequests.map((provider) => {
+                    const isBusy = actionLoadingKey === provider;
+                    const profile =
+                      profilesByWallet[String(provider || "").toLowerCase()] || {};
+                    const providerLabel = formatProvider({
+                      providerWallet: provider,
+                      providerName: profile.name,
+                      providerDisplay: profile.display
+                    });
+
+                    return (
+                      <tr key={provider} className="border-b border-slate-100">
+                        <td className="py-3 text-sm font-semibold text-slate-900">
+                          {providerLabel}
+                        </td>
+                        <td className="py-3">
+                          <StatusBadge status="pending" />
+                        </td>
+                        <td className="py-3">
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="success"
+                              loading={isBusy}
+                              onClick={() => approveProvider(provider)}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="danger"
+                              loading={isBusy}
+                              onClick={() => rejectProvider(provider)}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
 
-      <Card title="Active Provider Access" subtitle="Providers who currently have access">
+      <Card title="Doctors with Access" subtitle="Doctors who currently have access">
         {grantedProviders.length === 0 ? (
           <EmptyState
             title="No active access"
-            description="Providers you approve will appear here."
+            description="Doctors you approve will appear here."
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="py-2">Provider Address</th>
-                  <th className="py-2">Status</th>
-                  <th className="py-2">Expires</th>
-                  <th className="py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grantedProviders.map((provider) => {
-                  const isRevoking = accessActionLoading === `revoke_${provider}`;
-                  const isWrapping = accessActionLoading === `wrap_${provider}`;
-                  return (
-                    <tr key={provider} className="border-b border-slate-100">
-                      <td className="py-3 font-mono text-xs">{provider}</td>
-                      <td className="py-3">
-                        <StatusBadge status="approved" />
-                      </td>
-                      <td className="py-3 text-xs text-slate-600">
-                        {accessExpiryByProvider[provider]
-                          ? new Date(accessExpiryByProvider[provider] * 1000).toLocaleString()
-                          : "Unknown"}
-                      </td>
-                      <td className="py-3">
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            loading={isWrapping}
-                            onClick={() => rewrapProviderKeys(provider)}
-                          >
-                            Re-wrap Keys
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="danger"
-                            loading={isRevoking}
-                            onClick={() => revokeProviderAccess(provider)}
-                          >
-                            Revoke
-                          </Button>
+          <>
+            <div className="grid gap-3 md:hidden">
+              {grantedProviders.map((provider) => {
+                const isRevoking = accessActionLoading === `revoke_${provider}`;
+                const isWrapping = accessActionLoading === `wrap_${provider}`;
+                const expiryLabel = accessExpiryByProvider[provider]
+                  ? new Date(accessExpiryByProvider[provider] * 1000).toLocaleString()
+                  : "Unknown";
+                const profile = profilesByWallet[String(provider || "").toLowerCase()] || {};
+                const providerLabel = formatProvider({
+                  providerWallet: provider,
+                  providerName: profile.name,
+                  providerDisplay: profile.display
+                });
+
+                return (
+                  <div
+                    key={provider}
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-slate-500">Doctor</div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">
+                          {providerLabel}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                      <StatusBadge status="approved" />
+                    </div>
+
+                    <div className="mt-3 text-xs text-slate-600">
+                      <span className="font-medium text-slate-500">Expires:</span>{" "}
+                      {expiryLabel}
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="w-full"
+                        loading={isWrapping}
+                        onClick={() => rewrapProviderKeys(provider)}
+                      >
+                        Re-wrap Keys
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        className="w-full"
+                        loading={isRevoking}
+                        onClick={() => revokeProviderAccess(provider)}
+                      >
+                        Revoke
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500">
+                    <th className="py-2">Doctor</th>
+                    <th className="py-2">Status</th>
+                    <th className="py-2">Expires</th>
+                    <th className="py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grantedProviders.map((provider) => {
+                    const isRevoking = accessActionLoading === `revoke_${provider}`;
+                    const isWrapping = accessActionLoading === `wrap_${provider}`;
+                    const profile =
+                      profilesByWallet[String(provider || "").toLowerCase()] || {};
+                    const providerLabel = formatProvider({
+                      providerWallet: provider,
+                      providerName: profile.name,
+                      providerDisplay: profile.display
+                    });
+                    return (
+                      <tr key={provider} className="border-b border-slate-100">
+                        <td className="py-3 text-sm font-semibold text-slate-900">
+                          {providerLabel}
+                        </td>
+                        <td className="py-3">
+                          <StatusBadge status="approved" />
+                        </td>
+                        <td className="py-3 text-xs text-slate-600">
+                          {accessExpiryByProvider[provider]
+                            ? new Date(accessExpiryByProvider[provider] * 1000).toLocaleString()
+                            : "Unknown"}
+                        </td>
+                        <td className="py-3">
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              loading={isWrapping}
+                              onClick={() => rewrapProviderKeys(provider)}
+                            >
+                              Re-wrap Keys
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="danger"
+                              loading={isRevoking}
+                              onClick={() => revokeProviderAccess(provider)}
+                            >
+                              Revoke
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
 
-      <Card title="File History">
+      <Card title="Your Medical Files">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <Button
             type="button"
@@ -866,10 +1285,9 @@ export default function PatientDashboard() {
                   className="rounded-xl border border-slate-200 bg-slate-50 p-4"
                 >
                   <p className="text-sm font-semibold text-slate-800">{file.fileName}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {file.fileType || "Unknown type"}
-                  </p>
-                  <p className="mt-2 font-mono text-xs text-slate-600">{file.cid}</p>
+                  {file.fileType && file.fileType !== "Unknown" && file.fileType !== "Unknown type" ? (
+                    <p className="mt-1 text-xs text-slate-500">{file.fileType}</p>
+                  ) : null}
                   {!hasKeyMaterial ? (
                     <p className="mt-2 text-xs text-amber-700">
                       This file was uploaded before auto-decryption metadata was enabled. Please
@@ -903,6 +1321,125 @@ export default function PatientDashboard() {
           </div>
         )}
       </Card>
+
+      <Card title="Recent Activity">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-slate-500">
+            Recent actions across uploads, access changes, and doctor activity.
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm"
+              value={logFilter}
+              onChange={(event) => setLogFilter(event.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="uploads">Uploads</option>
+              <option value="requests">Access Requests</option>
+              <option value="approvals">Approvals</option>
+              <option value="file">File Activity</option>
+            </select>
+            <Button
+              type="button"
+              variant="ghost"
+              loading={exportingLogs}
+              disabled={loadingLogs || exportingLogs}
+              onClick={downloadAuditPdf}
+            >
+              Download PDF
+            </Button>
+          </div>
+        </div>
+
+        {loadingLogs ? (
+          <Loader label="Loading activity history..." />
+        ) : filteredLogs.length === 0 ? (
+          <EmptyState title="No activity yet" description="Your recent activity will show up here." />
+        ) : (
+          <div className="grid gap-3">
+            {filteredLogs.map((log) => {
+              const badgeStyle =
+                ACTION_BADGE_STYLES[log.action] || ACTION_BADGE_STYLES.DEFAULT;
+              const timestampLabel = log.timestamp
+                ? new Date(log.timestamp).toLocaleString()
+                : "";
+              const description = formatActionLog(log);
+
+              return (
+                <div
+                  key={log._id || `${log.action}_${log.timestamp}_${log.cid || ""}_${log.providerWallet || ""}`}
+                  className="rounded-xl border border-slate-200 bg-white p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span
+                      className={[
+                        "inline-flex rounded-full border px-2.5 py-1 text-xs font-medium",
+                        badgeStyle
+                      ].join(" ")}
+                    >
+                      {log.action || "UNKNOWN"}
+                    </span>
+                    <div className="text-xs text-slate-500">{timestampLabel}</div>
+                  </div>
+
+                  <div className="mt-3 text-sm text-slate-800">{description}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <Modal
+        open={profileModalOpen}
+        title="Edit Profile"
+        onClose={() => setProfileModalOpen(false)}
+      >
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveProfile();
+          }}
+        >
+          <Input
+            id="patientProfileName"
+            label="Full Name"
+            value={profileForm.name}
+            onChange={(event) => setProfileForm((prev) => ({ ...prev, name: event.target.value }))}
+          />
+          <Input
+            id="patientProfileEmail"
+            label="Email (optional)"
+            value={profileForm.email}
+            onChange={(event) =>
+              setProfileForm((prev) => ({ ...prev, email: event.target.value }))
+            }
+          />
+          <Input
+            id="patientProfilePhone"
+            label="Phone (optional)"
+            value={profileForm.phone}
+            onChange={(event) =>
+              setProfileForm((prev) => ({ ...prev, phone: event.target.value }))
+            }
+          />
+
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={savingProfile}
+              onClick={() => setProfileModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={savingProfile}>
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal
         open={preview.open}

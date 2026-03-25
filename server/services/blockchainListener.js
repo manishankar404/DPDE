@@ -1,6 +1,8 @@
+import process from "node:process";
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import AccessRequest from "../models/AccessRequest.js";
+import { logAction } from "../utils/auditLogger.js";
 
 dotenv.config();
 
@@ -45,6 +47,18 @@ export function startBlockchainListener() {
         status: "pending",
         txHash
       });
+
+      logAction({
+        action: "REQUEST_ACCESS",
+        patientWallet: patient,
+        providerWallet,
+        cid: "",
+        fileName: "",
+        role: "provider",
+        metadata: { txHash }
+      }).catch((error) =>
+        console.warn("[audit] REQUEST_ACCESS (chain) log failed:", error?.message || error)
+      );
     } catch (error) {
       console.error("[listener] AccessRequested error:", error?.message || error);
     }
@@ -64,6 +78,18 @@ export function startBlockchainListener() {
         },
         { status: "approved", expiry: Number(expiry) || 0, txHash },
         { upsert: true, returnDocument: "after" }
+      );
+
+      logAction({
+        action: "APPROVE",
+        patientWallet: patient,
+        providerWallet,
+        cid: "",
+        fileName: "",
+        role: "patient",
+        metadata: { txHash, expiry: Number(expiry) || 0 }
+      }).catch((error) =>
+        console.warn("[audit] APPROVE (chain) log failed:", error?.message || error)
       );
     } catch (error) {
       console.error("[listener] AccessGranted error:", error?.message || error);
@@ -85,6 +111,18 @@ export function startBlockchainListener() {
         { status: "rejected", expiry: 0, txHash },
         { upsert: true, returnDocument: "after" }
       );
+
+      logAction({
+        action: "REJECT",
+        patientWallet: patient,
+        providerWallet,
+        cid: "",
+        fileName: "",
+        role: "patient",
+        metadata: { txHash }
+      }).catch((error) =>
+        console.warn("[audit] REJECT (chain) log failed:", error?.message || error)
+      );
     } catch (error) {
       console.error("[listener] AccessRejected error:", error?.message || error);
     }
@@ -104,6 +142,18 @@ export function startBlockchainListener() {
         },
         { status: "revoked", expiry: 0, txHash },
         { upsert: true, returnDocument: "after" }
+      );
+
+      logAction({
+        action: "REVOKE",
+        patientWallet: patient,
+        providerWallet,
+        cid: "",
+        fileName: "",
+        role: "patient",
+        metadata: { txHash }
+      }).catch((error) =>
+        console.warn("[audit] REVOKE (chain) log failed:", error?.message || error)
       );
     } catch (error) {
       console.error("[listener] AccessRevoked error:", error?.message || error);

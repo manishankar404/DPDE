@@ -8,7 +8,13 @@ import { formatApiError, registerPatient } from "../api";
 
 export default function PatientRegister() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "", patientId: "", walletAddress: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    patientId: "",
+    walletAddress: ""
+  });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
@@ -39,6 +45,8 @@ export default function PatientRegister() {
     try {
       await registerPatient({
         name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
         patientId: form.patientId.trim(),
         walletAddress: form.walletAddress.trim()
       });
@@ -61,6 +69,18 @@ export default function PatientRegister() {
             value={form.name}
             onChange={(event) => onChange("name", event.target.value)}
             error={form.name ? formErrors.name : ""}
+          />
+          <Input
+            id="email"
+            label="Email (optional)"
+            value={form.email}
+            onChange={(event) => onChange("email", event.target.value)}
+          />
+          <Input
+            id="phone"
+            label="Phone (optional)"
+            value={form.phone}
+            onChange={(event) => onChange("phone", event.target.value)}
           />
           <Input
             id="patientId"
@@ -104,4 +124,3 @@ export default function PatientRegister() {
     </div>
   );
 }
-

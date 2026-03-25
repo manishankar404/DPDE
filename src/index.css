@@ -11,6 +11,8 @@
 
   body {
     @apply m-0 font-sans;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }
 
@@ -43,4 +45,3 @@
     transform: translateY(0);
   }
 }
-

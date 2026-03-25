@@ -78,7 +78,9 @@ export default function PatientLogin() {
         role: "patient",
         patientId: patient.patientId,
         walletAddress: patient.walletAddress,
-        name: patient.name
+        name: patient.name,
+        email: patient.email || "",
+        phone: patient.phone || ""
       }, token);
       await preloadPatientDashboard();
       navigate("/patient/dashboard");

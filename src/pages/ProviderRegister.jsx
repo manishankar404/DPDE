@@ -10,7 +10,10 @@ import { ensureSepolia } from "../blockchain/consent";
 
 export default function ProviderRegister() {
   const navigate = useNavigate();
+  const [name, setName] = useState("");
   const [hospitalName, setHospitalName] = useState("");
+  const [specialization, setSpecialization] = useState("");
+  const [email, setEmail] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [publicKey, setPublicKey] = useState("");
   const [error, setError] = useState("");
@@ -19,11 +22,11 @@ export default function ProviderRegister() {
   const [connecting, setConnecting] = useState(false);
 
   const validation = useMemo(() => {
-    if (!hospitalName.trim()) return "Hospital name is required.";
+    if (!name.trim()) return "Doctor name is required.";
     if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress.trim())) return "Connect a wallet.";
     if (!publicKey) return "Wallet encryption key is required.";
     return "";
-  }, [hospitalName, walletAddress, publicKey]);
+  }, [name, walletAddress, publicKey]);
 
   async function connectWallet() {
     setConnecting(true);
@@ -56,7 +59,10 @@ export default function ProviderRegister() {
     setSuccess("");
     try {
       await registerProvider({
+        name: name.trim(),
         hospitalName: hospitalName.trim(),
+        specialization: specialization.trim(),
+        email: email.trim(),
         walletAddress: walletAddress.trim(),
         encryptionPublicKey: publicKey
       });
@@ -74,10 +80,28 @@ export default function ProviderRegister() {
       <Card className="w-full max-w-md rounded-2xl shadow-soft slide-up" title="Provider Register">
         <form className="space-y-4" onSubmit={onSubmit}>
           <Input
+            id="doctorName"
+            label="Doctor Name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <Input
             id="hospitalName"
-            label="Hospital Name"
+            label="Hospital Name (optional)"
             value={hospitalName}
             onChange={(event) => setHospitalName(event.target.value)}
+          />
+          <Input
+            id="specialization"
+            label="Specialization (optional)"
+            value={specialization}
+            onChange={(event) => setSpecialization(event.target.value)}
+          />
+          <Input
+            id="providerEmail"
+            label="Email (optional)"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
           />
           <Input
             id="providerWallet"
@@ -95,7 +119,7 @@ export default function ProviderRegister() {
             {walletAddress ? "Reconnect Wallet" : "Connect Wallet"}
           </Button>
 
-          {validation && (hospitalName || walletAddress) ? (
+          {validation && (name || walletAddress) ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
               {validation}
             </div>

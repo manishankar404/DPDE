@@ -1,6 +1,32 @@
 import AccessRequest from "../models/AccessRequest.js";
 import File from "../models/File.js";
 import Patient from "../models/Patient.js";
+import { logAction } from "../utils/auditLogger.js";
+import { resolveWallets } from "../utils/profileResolver.js";
+
+async function enrichAccessRequests(requests) {
+  const list = Array.isArray(requests) ? requests : [requests].filter(Boolean);
+  if (list.length === 0) return requests;
+
+  const wallets = Array.from(
+    new Set(
+      list
+        .map((req) => String(req.providerWallet || "").toLowerCase())
+        .filter(Boolean)
+    )
+  );
+  const profiles = await resolveWallets(wallets);
+
+  const enriched = list.map((req) => {
+    const wallet = String(req.providerWallet || "").toLowerCase();
+    const profile = wallet ? profiles[wallet] : null;
+    const providerName = profile?.type === "provider" ? profile.name || "" : "";
+    const providerDisplay = profile?.type === "provider" ? profile.display || "" : "";
+    return { ...req, providerName, providerDisplay };
+  });
+
+  return Array.isArray(requests) ? enriched : enriched[0];
+}
 
 export async function requestAccess(req, res, next) {
   try {
@@ -31,12 +57,25 @@ export async function requestAccess(req, res, next) {
 
     const accessRequest = await AccessRequest.create({
       cid,
-      providerWallet,
+      providerWallet: String(providerWallet).toLowerCase(),
       patientId,
       status: "pending"
     });
 
-    return res.status(201).json(accessRequest);
+    logAction({
+      action: "REQUEST_ACCESS",
+      patientWallet: patient.walletAddress,
+      providerWallet: req.user.walletAddress,
+      cid,
+      fileName: file.fileName || "",
+      role: "provider",
+      metadata: { patientId }
+    }).catch((error) => console.warn("[audit] REQUEST_ACCESS log failed:", error?.message || error));
+
+    const enriched = await enrichAccessRequests(
+      accessRequest?.toObject ? accessRequest.toObject() : accessRequest
+    );
+    return res.status(201).json(enriched);
   } catch (error) {
     return next(error);
   }
@@ -58,8 +97,9 @@ export async function approveAccess(req, res, next) {
       return res.status(403).json({ error: "Not owner of this patientId" });
     }
 
+    const normalizedProviderWallet = String(providerWallet).toLowerCase();
     const accessRequest = await AccessRequest.findOneAndUpdate(
-      { cid, providerWallet, patientId },
+      { cid, providerWallet: normalizedProviderWallet, patientId },
       { status: "approved" },
       { new: true }
     );
@@ -68,7 +108,27 @@ export async function approveAccess(req, res, next) {
       return res.status(404).json({ message: "Access request not found" });
     }
 
-    return res.status(200).json(accessRequest);
+    File.findOne({ cid, patientId })
+      .lean()
+      .then((file) => file?.fileName || "")
+      .catch(() => "")
+      .then((resolvedFileName) =>
+        logAction({
+          action: "APPROVE",
+          patientWallet: patient.walletAddress,
+          providerWallet,
+          cid,
+          fileName: resolvedFileName,
+          role: "patient",
+          metadata: { patientId }
+        })
+      )
+      .catch((error) => console.warn("[audit] APPROVE log failed:", error?.message || error));
+
+    const enriched = await enrichAccessRequests(
+      accessRequest?.toObject ? accessRequest.toObject() : accessRequest
+    );
+    return res.status(200).json(enriched);
   } catch (error) {
     return next(error);
   }
@@ -90,8 +150,9 @@ export async function rejectAccess(req, res, next) {
       return res.status(403).json({ error: "Not owner of this patientId" });
     }
 
+    const normalizedProviderWallet = String(providerWallet).toLowerCase();
     const accessRequest = await AccessRequest.findOneAndUpdate(
-      { cid, providerWallet, patientId },
+      { cid, providerWallet: normalizedProviderWallet, patientId },
       { status: "rejected" },
       { new: true }
     );
@@ -100,7 +161,27 @@ export async function rejectAccess(req, res, next) {
       return res.status(404).json({ message: "Access request not found" });
     }
 
-    return res.status(200).json(accessRequest);
+    File.findOne({ cid, patientId })
+      .lean()
+      .then((file) => file?.fileName || "")
+      .catch(() => "")
+      .then((resolvedFileName) =>
+        logAction({
+          action: "REJECT",
+          patientWallet: patient.walletAddress,
+          providerWallet,
+          cid,
+          fileName: resolvedFileName,
+          role: "patient",
+          metadata: { patientId }
+        })
+      )
+      .catch((error) => console.warn("[audit] REJECT log failed:", error?.message || error));
+
+    const enriched = await enrichAccessRequests(
+      accessRequest?.toObject ? accessRequest.toObject() : accessRequest
+    );
+    return res.status(200).json(enriched);
   } catch (error) {
     return next(error);
   }
@@ -120,7 +201,8 @@ export async function getPendingByPatientId(req, res, next) {
       patientId,
       status: "pending"
     }).sort({ createdAt: -1 });
-    return res.status(200).json(requests);
+    const enriched = await enrichAccessRequests(requests.map((item) => item.toObject()));
+    return res.status(200).json(enriched);
   } catch (error) {
     return next(error);
   }
@@ -132,8 +214,12 @@ export async function getByProviderWallet(req, res, next) {
     if (providerWallet.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
       return res.status(403).json({ error: "Not owner of this provider wallet" });
     }
-    const requests = await AccessRequest.find({ providerWallet }).sort({ createdAt: -1 });
-    return res.status(200).json(requests);
+    const normalizedProviderWallet = String(providerWallet).toLowerCase();
+    const requests = await AccessRequest.find({ providerWallet: normalizedProviderWallet }).sort({
+      createdAt: -1
+    });
+    const enriched = await enrichAccessRequests(requests.map((item) => item.toObject()));
+    return res.status(200).json(enriched);
   } catch (error) {
     return next(error);
   }

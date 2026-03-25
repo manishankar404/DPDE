@@ -3,13 +3,13 @@ import Button from "./Button";
 
 export default function Sidebar({ role, collapsed, onToggle, onLogout }) {
   const baseItem =
-    "rounded-lg px-3 py-2 text-sm font-medium transition hover:bg-slate-100";
+    "block w-full rounded-lg px-3 py-2 text-sm font-medium transition hover:bg-slate-100";
   const activeItem = "bg-healthcare-blue text-white hover:bg-healthcare-blue";
 
   return (
     <aside
       className={[
-        "border-r border-slate-200 bg-white p-4 transition-all duration-300",
+        "flex h-full flex-col border-r border-slate-200 bg-white p-4 transition-all duration-300",
         collapsed ? "w-16" : "w-64"
       ].join(" ")}
     >
@@ -30,7 +30,7 @@ export default function Sidebar({ role, collapsed, onToggle, onLogout }) {
         </button>
       </div>
 
-      <nav className="space-y-2">
+      <nav className="flex-1 space-y-2 overflow-y-auto">
         <NavLink
           to={role === "patient" ? "/patient/dashboard" : "/provider/dashboard"}
           className={({ isActive }) => `${baseItem} ${isActive ? activeItem : ""}`}
@@ -51,7 +51,7 @@ export default function Sidebar({ role, collapsed, onToggle, onLogout }) {
         ) : null}
       </nav>
 
-      <div className="mt-8">
+      <div className="mt-6">
         <Button
           variant="ghost"
           type="button"

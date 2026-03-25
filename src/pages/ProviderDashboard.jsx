@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatApiError, getFilesByPatient, getPatientById } from "../api";
+import {
+  formatApiError,
+  getFilesByPatient,
+  getMyProviderProfile,
+  getPatientById,
+  logProviderFileAction,
+  updateMyProviderProfile
+} from "../api";
 import { getCurrentWalletAddress, hasAccess, requestPatientAccess, getAccessExpiry } from "../blockchain/consent";
 import Button from "../components/Button";
 import Card from "../components/Card";
@@ -94,7 +101,7 @@ async function fetchIpfsWithFallback(cid) {
 }
 
 export default function ProviderDashboard() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { patientAccessStatus, refreshAccessStatus } = useAccess();
   const [patientId, setPatientId] = useState("");
   const [patientIdError, setPatientIdError] = useState("");
@@ -105,6 +112,14 @@ export default function ProviderDashboard() {
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [unlockStats, setUnlockStats] = useState({ total: 0, cached: 0 });
   const [accessExpiry, setAccessExpiry] = useState(0);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    name: "",
+    hospitalName: "",
+    specialization: "",
+    email: ""
+  });
+  const [savingProfile, setSavingProfile] = useState(false);
   const [preview, setPreview] = useState({
     open: false,
     url: "",
@@ -125,12 +140,76 @@ export default function ProviderDashboard() {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }
 
+  function openProfileEditor() {
+    setProfileForm({
+      name: user?.name || "",
+      hospitalName: user?.hospitalName || "",
+      specialization: user?.specialization || "",
+      email: user?.email || ""
+    });
+    setProfileModalOpen(true);
+  }
+
+  async function saveProfile() {
+    if (!profileForm.name.trim()) {
+      addToast("Name is required.", "error");
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const updated = await updateMyProviderProfile({
+        name: profileForm.name.trim(),
+        hospitalName: profileForm.hospitalName.trim(),
+        specialization: profileForm.specialization.trim(),
+        email: profileForm.email.trim()
+      });
+      updateUser({
+        name: updated?.name || profileForm.name.trim(),
+        hospitalName: updated?.hospitalName || profileForm.hospitalName.trim(),
+        specialization: updated?.specialization || profileForm.specialization.trim(),
+        email: updated?.email || profileForm.email.trim()
+      });
+      addToast("Profile updated.", "success");
+      setProfileModalOpen(false);
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to update profile."), "error");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
   useEffect(() => {
     return () => {
       objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       objectUrlsRef.current = [];
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadMyProfile() {
+      if (!user?.walletAddress) return;
+      try {
+        const profile = await getMyProviderProfile();
+        if (!active || !profile) return;
+        updateUser({
+          name: profile.name,
+          hospitalName: profile.hospitalName,
+          specialization: profile.specialization,
+          email: profile.email,
+          walletAddress: profile.walletAddress
+        });
+      } catch {
+        // Ignore profile fetch failures; dashboard can still run from cached session.
+      }
+    }
+
+    loadMyProfile();
+    return () => {
+      active = false;
+    };
+  }, [user?.walletAddress, updateUser]);
 
   useEffect(() => {
     keyCacheRef.current.clear();
@@ -325,6 +404,9 @@ export default function ProviderDashboard() {
       link.click();
       link.remove();
       addToast(`Opened file as ${providerAddress.slice(0, 6)}...`, "success");
+      if (patientId && file?.cid) {
+        logProviderFileAction({ action: "DOWNLOAD_FILE", cid: file.cid, patientId }).catch(() => {});
+      }
     } catch (error) {
       addToast(formatApiError(error, "Failed to open file."), "error");
     } finally {
@@ -354,6 +436,9 @@ export default function ProviderDashboard() {
         isNifti
       });
       addToast("File opened in web preview.", "success");
+      if (patientId && file?.cid) {
+        logProviderFileAction({ action: "VIEW_FILE", cid: file.cid, patientId }).catch(() => {});
+      }
     } catch (error) {
       addToast(formatApiError(error, "Failed to preview file."), "error");
     } finally {
@@ -401,6 +486,85 @@ export default function ProviderDashboard() {
 
   return (
     <div className="space-y-6">
+      <Card title="Your Profile">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={openProfileEditor}>
+            Edit Profile
+          </Button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <div className="text-xs font-medium text-slate-500">Name</div>
+            <div className="text-sm font-semibold text-slate-900">{user?.name || "Doctor"}</div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-slate-500">Hospital</div>
+            <div className="text-sm text-slate-700">{user?.hospitalName || "—"}</div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-slate-500">Specialization</div>
+            <div className="text-sm text-slate-700">{user?.specialization || "—"}</div>
+          </div>
+        </div>
+      </Card>
+
+      <Modal
+        open={profileModalOpen}
+        title="Edit Profile"
+        onClose={() => setProfileModalOpen(false)}
+      >
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveProfile();
+          }}
+        >
+          <Input
+            id="providerProfileName"
+            label="Doctor Name"
+            value={profileForm.name}
+            onChange={(event) => setProfileForm((prev) => ({ ...prev, name: event.target.value }))}
+          />
+          <Input
+            id="providerProfileHospital"
+            label="Hospital Name (optional)"
+            value={profileForm.hospitalName}
+            onChange={(event) =>
+              setProfileForm((prev) => ({ ...prev, hospitalName: event.target.value }))
+            }
+          />
+          <Input
+            id="providerProfileSpecialization"
+            label="Specialization (optional)"
+            value={profileForm.specialization}
+            onChange={(event) =>
+              setProfileForm((prev) => ({ ...prev, specialization: event.target.value }))
+            }
+          />
+          <Input
+            id="providerProfileEmail"
+            label="Email (optional)"
+            value={profileForm.email}
+            onChange={(event) => setProfileForm((prev) => ({ ...prev, email: event.target.value }))}
+          />
+
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={savingProfile}
+              onClick={() => setProfileModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={savingProfile}>
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
       <Card title="Search Patient Records" subtitle="Enter patient ID to retrieve all files">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <Input
@@ -424,9 +588,9 @@ export default function ProviderDashboard() {
       {patientAddress ? (
         <Card title="Access Status">
           <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm text-slate-600">
-              Patient wallet: <span className="font-mono text-xs">{patientAddress}</span>
-            </p>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              Patient ID: {patientId || "—"}
+            </span>
             <StatusBadge status={patientAccessStatus || "unknown"} />
             <span className="text-xs text-slate-600">{accessBadge}</span>
             {accessExpiry > 0 ? (
@@ -494,8 +658,9 @@ export default function ProviderDashboard() {
                   className="rounded-xl border border-slate-200 bg-slate-50 p-4"
                 >
                   <p className="text-sm font-semibold text-slate-800">{file.fileName}</p>
-                  <p className="mt-1 text-xs text-slate-500">{file.fileType || "Unknown type"}</p>
-                  <p className="mt-2 font-mono text-xs text-slate-600">{file.cid}</p>
+                  {file.fileType && file.fileType !== "Unknown" && file.fileType !== "Unknown type" ? (
+                    <p className="mt-1 text-xs text-slate-500">{file.fileType}</p>
+                  ) : null}
                   {!hasKeyMaterial ? (
                     <p className="mt-2 text-xs text-amber-700">
                       This file was uploaded before auto-decryption metadata was enabled.

@@ -72,7 +72,9 @@ export default function ProviderLogin() {
         {
           role: "provider",
           walletAddress: provider.walletAddress,
-          hospitalName: provider.hospitalName
+          name: provider.name || "",
+          hospitalName: provider.hospitalName || "",
+          specialization: provider.specialization || ""
         },
         token
       );

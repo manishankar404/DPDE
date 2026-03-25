@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import File from "../models/File.js";
 import Patient from "../models/Patient.js";
+import { logAction } from "../utils/auditLogger.js";
 
 const CONSENT_ABI = [
   "function hasAccess(address patient, address provider) view returns (bool)"
@@ -69,6 +70,17 @@ export async function registerFile(req, res, next) {
       encryptedKeyForProvider: "",
       encryptedIvForProvider: ""
     });
+
+    logAction({
+      action: "UPLOAD",
+      patientWallet: patient.walletAddress,
+      providerWallet: "",
+      cid,
+      fileName,
+      role: "patient",
+      metadata: { patientId, fileType: fileType || "" }
+    }).catch((error) => console.warn("[audit] UPLOAD log failed:", error?.message || error));
+
     return res.status(201).json(file);
   } catch (error) {
     return next(error);
@@ -198,6 +210,16 @@ export async function revokeWrappedKeys(req, res, next) {
       { patientId },
       { $pull: { wrappedKeys: { providerWallet: normalizedProvider } } }
     );
+
+    logAction({
+      action: "REVOKE",
+      patientWallet: patient.walletAddress,
+      providerWallet: normalizedProvider,
+      cid: "",
+      fileName: "",
+      role: "patient",
+      metadata: { patientId }
+    }).catch((error) => console.warn("[audit] REVOKE log failed:", error?.message || error));
 
     return res.status(200).json({ message: "Wrapped keys revoked." });
   } catch (error) {

@@ -4,8 +4,10 @@ import express from "express";
 import { connectDB } from "./config/db.js";
 import accessRoutes from "./routes/accessRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import auditRoutes from "./routes/auditRoutes.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import patientRoutes from "./routes/patientRoutes.js";
+import profileRoutes from "./routes/profileRoutes.js";
 import providerRoutes from "./routes/providerRoutes.js";
 import { startBlockchainListener } from "./services/blockchainListener.js";
 
@@ -26,6 +28,8 @@ app.use("/api/providers", providerRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/access", accessRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/audit", auditRoutes);
+app.use("/api/profiles", profileRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });

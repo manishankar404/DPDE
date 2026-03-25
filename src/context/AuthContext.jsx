@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 const AUTH_STORAGE_KEY = "dpde_auth_session";
+const UNAUTHORIZED_EVENT = "dpde:unauthorized";
 
 const AuthContext = createContext(null);
 
@@ -20,6 +21,22 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  useEffect(() => {
+    function handleUnauthorized() {
+      setUser(null);
+      setToken(null);
+      try {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+    }
+
+    if (typeof window === "undefined") return;
+    window.addEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+  }, []);
+
   function login(userData, sessionToken = null) {
     setUser(userData);
     setToken(sessionToken);
@@ -27,6 +44,17 @@ export function AuthProvider({ children }) {
       AUTH_STORAGE_KEY,
       JSON.stringify({ user: userData, token: sessionToken })
     );
+  }
+
+  function updateUser(updates) {
+    setUser((prev) => {
+      const next = { ...(prev || {}), ...(updates || {}) };
+      localStorage.setItem(
+        AUTH_STORAGE_KEY,
+        JSON.stringify({ user: next, token })
+      );
+      return next;
+    });
   }
 
   function logout() {
@@ -40,6 +68,7 @@ export function AuthProvider({ children }) {
       user,
       token,
       login,
+      updateUser,
       logout,
       isAuthenticated: Boolean(user)
     }),
@@ -56,4 +85,3 @@ export function useAuth() {
   }
   return context;
 }
-
