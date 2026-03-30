@@ -1,4 +1,4 @@
-import process from "node:process";
+﻿import process from "node:process";
 import { ethers } from "ethers";
 import AuditLog from "../models/AuditLog.js";
 import File from "../models/File.js";
@@ -74,8 +74,8 @@ export async function logProviderFileAction(req, res, next) {
   try {
     const { action, cid, patientId } = req.body || {};
     const normalizedAction = typeof action === "string" ? action.trim() : "";
-    if (!["VIEW_FILE", "DOWNLOAD_FILE"].includes(normalizedAction)) {
-      return res.status(400).json({ message: "action must be VIEW_FILE or DOWNLOAD_FILE" });
+    if (!["VIEW_FILE", "DOWNLOAD_FILE", "PRINT_FILE"].includes(normalizedAction)) {
+      return res.status(400).json({ message: "action must be VIEW_FILE, DOWNLOAD_FILE, or PRINT_FILE" });
     }
     if (!cid || !patientId) {
       return res.status(400).json({ message: "cid and patientId are required" });
@@ -123,3 +123,4 @@ export async function logProviderFileAction(req, res, next) {
     return next(error);
   }
 }
+

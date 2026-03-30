@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import {
   formatApiError,
   getFilesByPatient,
@@ -392,28 +392,44 @@ export default function ProviderDashboard() {
     }
   }
 
-  async function openFile(file) {
+  async function printFile(file) {
     if (!patientAddress) return;
-    setActionLoading(`open_${file.cid}`);
+    setActionLoading(`print_${file.cid}`);
+    let frame = null;
+
     try {
       const { url, providerAddress } = await decryptToObjectUrl(file);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = file.fileName || "record";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      addToast(`Opened file as ${providerAddress.slice(0, 6)}...`, "success");
+      frame = document.createElement("iframe");
+      frame.style.position = "fixed";
+      frame.style.right = "0";
+      frame.style.bottom = "0";
+      frame.style.width = "0";
+      frame.style.height = "0";
+      frame.style.border = "0";
+      frame.onload = () => {
+        try {
+          const frameWindow = frame.contentWindow;
+          frameWindow?.focus();
+          frameWindow?.print();
+        } catch {
+          // ignore
+        }
+        setTimeout(() => frame?.remove(), 1000);
+      };
+      frame.src = url;
+      document.body.appendChild(frame);
+
+      addToast(`Print dialog opened as ${providerAddress.slice(0, 6)}...`, "success");
       if (patientId && file?.cid) {
-        logProviderFileAction({ action: "DOWNLOAD_FILE", cid: file.cid, patientId }).catch(() => {});
+        logProviderFileAction({ action: "PRINT_FILE", cid: file.cid, patientId }).catch(() => {});
       }
     } catch (error) {
-      addToast(formatApiError(error, "Failed to open file."), "error");
+      frame?.remove();
+      addToast(formatApiError(error, "Failed to print file."), "error");
     } finally {
       setActionLoading("");
     }
   }
-
   async function viewFile(file) {
     if (!patientAddress) return;
     setActionLoading(`view_${file.cid}`);
@@ -499,11 +515,11 @@ export default function ProviderDashboard() {
           </div>
           <div>
             <div className="text-xs font-medium text-slate-500">Hospital</div>
-            <div className="text-sm text-slate-700">{user?.hospitalName || "—"}</div>
+            <div className="text-sm text-slate-700">{user?.hospitalName || "â€”"}</div>
           </div>
           <div>
             <div className="text-xs font-medium text-slate-500">Specialization</div>
-            <div className="text-sm text-slate-700">{user?.specialization || "—"}</div>
+            <div className="text-sm text-slate-700">{user?.specialization || "â€”"}</div>
           </div>
         </div>
       </Card>
@@ -589,7 +605,7 @@ export default function ProviderDashboard() {
         <Card title="Access Status">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-              Patient ID: {patientId || "—"}
+              Patient ID: {patientId || "â€”"}
             </span>
             <StatusBadge status={patientAccessStatus || "unknown"} />
             <span className="text-xs text-slate-600">{accessBadge}</span>
@@ -644,7 +660,7 @@ export default function ProviderDashboard() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {files.map((file) => {
-              const loadingDownload = actionLoading === `open_${file.cid}`;
+              const loadingPrint = actionLoading === `print_${file.cid}`;
               const loadingView = actionLoading === `view_${file.cid}`;
               const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
               const hasWrappedKey = Boolean(file.encryptedKeyForProvider && file.iv);
@@ -680,12 +696,10 @@ export default function ProviderDashboard() {
                       <Button
                         type="button"
                         variant="ghost"
-                        loading={loadingDownload}
+                        loading={loadingPrint}
                         disabled={patientAccessStatus !== "approved" || !hasKeyMaterial}
-                        onClick={() => openFile(file)}
-                      >
-                        Download
-                      </Button>
+                        onClick={() => printFile(file)}
+                      >Print</Button>
                     </div>
                   </div>
                 </div>
@@ -742,4 +756,5 @@ export default function ProviderDashboard() {
     </div>
   );
 }
+
 

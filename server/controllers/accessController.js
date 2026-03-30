@@ -2,7 +2,8 @@ import AccessRequest from "../models/AccessRequest.js";
 import File from "../models/File.js";
 import Patient from "../models/Patient.js";
 import { logAction } from "../utils/auditLogger.js";
-import { resolveWallets } from "../utils/profileResolver.js";
+import { sendMail } from "../utils/mailer.js";
+import { resolveWallet, resolveWallets } from "../utils/profileResolver.js";
 
 async function enrichAccessRequests(requests) {
   const list = Array.isArray(requests) ? requests : [requests].filter(Boolean);
@@ -71,6 +72,29 @@ export async function requestAccess(req, res, next) {
       role: "provider",
       metadata: { patientId }
     }).catch((error) => console.warn("[audit] REQUEST_ACCESS log failed:", error?.message || error));
+
+    const notificationsEnabled = patient.notificationsEnabled !== false;
+    if (notificationsEnabled && patient.email) {
+      (async () => {
+        const providerProfile = await resolveWallet(providerWallet);
+        const providerDisplay = providerProfile?.display || providerWallet;
+        const fileName = file.fileName || "a file";
+        const subject = `DPDE: New access request for ${fileName}`;
+        const text = [
+          `Hello ${patient.name || "Patient"},`,
+          "",
+          `${providerDisplay} requested access to "${fileName}".`,
+          `Patient ID: ${patientId}`,
+          `File CID: ${cid}`,
+          "",
+          "Log in to DPDE to approve or reject this request."
+        ].join("\n");
+
+        await sendMail({ to: patient.email, subject, text });
+      })().catch((error) => {
+        console.warn("[mail] access request notification failed:", error?.message || error);
+      });
+    }
 
     const enriched = await enrichAccessRequests(
       accessRequest?.toObject ? accessRequest.toObject() : accessRequest

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import Card from "../components/Card";
@@ -12,7 +12,6 @@ export default function PatientRegister() {
     name: "",
     email: "",
     phone: "",
-    patientId: "",
     walletAddress: ""
   });
   const [error, setError] = useState("");
@@ -22,7 +21,6 @@ export default function PatientRegister() {
   const formErrors = useMemo(() => {
     const issues = {};
     if (!form.name.trim()) issues.name = "Name is required.";
-    if (!form.patientId.trim()) issues.patientId = "Patient ID is required.";
     if (!/^0x[a-fA-F0-9]{40}$/.test(form.walletAddress.trim())) {
       issues.walletAddress = "Enter a valid wallet address.";
     }
@@ -47,11 +45,10 @@ export default function PatientRegister() {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
-        patientId: form.patientId.trim(),
         walletAddress: form.walletAddress.trim()
       });
       setSuccess("Patient registered successfully. Redirecting to login...");
-      setTimeout(() => navigate("/patient/login"), 900);
+      setTimeout(() => navigate("/login"), 900);
     } catch (submitError) {
       setError(formatApiError(submitError, "Registration failed."));
     } finally {
@@ -83,19 +80,16 @@ export default function PatientRegister() {
             onChange={(event) => onChange("phone", event.target.value)}
           />
           <Input
-            id="patientId"
-            label="Patient ID"
-            value={form.patientId}
-            onChange={(event) => onChange("patientId", event.target.value)}
-            error={form.patientId ? formErrors.patientId : ""}
-          />
-          <Input
             id="walletAddress"
             label="Wallet Address"
             value={form.walletAddress}
             onChange={(event) => onChange("walletAddress", event.target.value)}
             error={form.walletAddress ? formErrors.walletAddress : ""}
           />
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            Patient ID is generated automatically after registration and shown in the patient dashboard.
+          </div>
 
           {error ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -116,7 +110,7 @@ export default function PatientRegister() {
 
         <p className="mt-4 text-sm text-slate-500">
           Already registered?{" "}
-          <Link to="/patient/login" className="font-medium text-healthcare-blue">
+          <Link to="/login" className="font-medium text-healthcare-blue">
             Login
           </Link>
         </p>

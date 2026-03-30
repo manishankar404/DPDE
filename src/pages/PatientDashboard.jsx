@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { encrypt } from "@metamask/eth-sig-util";
 import { Buffer } from "buffer";
 import {
@@ -39,6 +40,7 @@ const ACTION_BADGE_STYLES = {
   REVOKE: "bg-orange-100 text-orange-800 border-orange-200",
   VIEW_FILE: "bg-purple-100 text-purple-800 border-purple-200",
   DOWNLOAD_FILE: "bg-teal-100 text-teal-800 border-teal-200",
+  PRINT_FILE: "bg-sky-100 text-sky-800 border-sky-200",
   DEFAULT: "bg-slate-100 text-slate-700 border-slate-200"
 };
 
@@ -151,6 +153,7 @@ async function fetchIpfsWithFallback(cid) {
 }
 
 export default function PatientDashboard() {
+  const navigate = useNavigate();
   const { user, updateUser } = useAuth();
   const { pendingRequests, grantedProviders, refreshPendingRequests, refreshGrantedProviders } =
     useAccess();
@@ -305,7 +308,7 @@ export default function PatientDashboard() {
     if (!wallet) return;
     setLoadingLogs(true);
     try {
-      const list = await getPatientAuditLogs(wallet);
+      const list = await getPatientAuditLogs(wallet, { limit: 10 });
       setLogs(Array.isArray(list) ? list : []);
     } catch (error) {
       addToast(formatApiError(error, "Failed to load activity history."), "error");
@@ -365,6 +368,7 @@ export default function PatientDashboard() {
               .badge-REVOKE { background: #ffedd5; border-color: #fed7aa; color: #9a3412; }
               .badge-VIEW_FILE { background: #ede9fe; border-color: #ddd6fe; color: #5b21b6; }
               .badge-DOWNLOAD_FILE { background: #ccfbf1; border-color: #99f6e4; color: #115e59; }
+              .badge-PRINT_FILE { background: #e0f2fe; border-color: #bae6fd; color: #075985; }
               .badge-UNKNOWN { background: #f1f5f9; border-color: #e2e8f0; color: #334155; }
               @media print { .sub { page-break-after: avoid; } tr { page-break-inside: avoid; } }
             </style>
@@ -372,9 +376,9 @@ export default function PatientDashboard() {
           <body>
             <h1>Recent Activity</h1>
             <p class="sub">
-              Patient: ${escapeHtml(shortenWallet(wallet))} • Generated: ${escapeHtml(
+              Patient: ${escapeHtml(shortenWallet(wallet))} â€¢ Generated: ${escapeHtml(
                 new Date().toLocaleString()
-              )} • Records: ${exportLogs.length}
+              )} â€¢ Records: ${exportLogs.length}
             </p>
             <table>
               <thead>
@@ -482,7 +486,7 @@ export default function PatientDashboard() {
     if (logFilter === "approvals")
       return logs.filter((log) => ["APPROVE", "REJECT", "REVOKE"].includes(log.action));
     if (logFilter === "file")
-      return logs.filter((log) => ["VIEW_FILE", "DOWNLOAD_FILE"].includes(log.action));
+      return logs.filter((log) => ["VIEW_FILE", "DOWNLOAD_FILE", "PRINT_FILE"].includes(log.action));
     return logs;
   }, [logs, logFilter]);
 
@@ -910,12 +914,12 @@ export default function PatientDashboard() {
           </div>
           <div>
             <div className="text-xs font-medium text-slate-500">Patient ID</div>
-            <div className="text-sm text-slate-700">{user?.patientId || "—"}</div>
+            <div className="text-sm text-slate-700">{user?.patientId || "â€”"}</div>
           </div>
           <div>
             <div className="text-xs font-medium text-slate-500">Wallet</div>
             <div className="font-mono text-sm text-slate-700">
-              {shortenWallet(user?.walletAddress) || "—"}
+              {shortenWallet(user?.walletAddress) || "â€”"}
             </div>
           </div>
         </div>
@@ -1325,7 +1329,7 @@ export default function PatientDashboard() {
       <Card title="Recent Activity">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate-500">
-            Recent actions across uploads, access changes, and doctor activity.
+            Latest 10 actions across uploads, access changes, and doctor activity.
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -1347,6 +1351,14 @@ export default function PatientDashboard() {
               onClick={downloadAuditPdf}
             >
               Download PDF
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={loadingLogs}
+              onClick={() => navigate("/patient/dashboard/audit")}
+            >
+              View all
             </Button>
           </div>
         </div>
@@ -1488,4 +1500,12 @@ export default function PatientDashboard() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
 

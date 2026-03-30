@@ -38,9 +38,21 @@ export default function Sidebar({ role, collapsed, onToggle, onLogout }) {
           {collapsed ? "D" : "Dashboard"}
         </NavLink>
         {role === "patient" ? (
-          <span className={baseItem}>{collapsed ? "U" : "Upload"}</span>
+          <>
+            <NavLink
+              to="/patient/dashboard/audit"
+              className={({ isActive }) => `${baseItem} ${isActive ? activeItem : ""}`}
+            >
+              {collapsed ? "A" : "Audit Logs"}
+            </NavLink>
+            <NavLink
+              to="/patient/dashboard/notifications"
+              className={({ isActive }) => `${baseItem} ${isActive ? activeItem : ""}`}
+            >
+              {collapsed ? "N" : "Notifications"}
+            </NavLink>
+          </>
         ) : null}
-        <span className={baseItem}>{collapsed ? "R" : "Requests"}</span>
         {role === "provider" ? (
           <NavLink
             to="/provider/dashboard/settings"

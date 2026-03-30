@@ -95,6 +95,17 @@ export function updateMyPatientProfile(data) {
   });
 }
 
+export function getMyNotificationSettings() {
+  return request("/patients/me/notifications");
+}
+
+export function updateMyNotificationSettings(enabled) {
+  return request("/patients/me/notifications", {
+    method: "PUT",
+    body: JSON.stringify({ enabled: Boolean(enabled) })
+  });
+}
+
 export function registerProvider(data) {
   return request("/providers/register", {
     method: "POST",

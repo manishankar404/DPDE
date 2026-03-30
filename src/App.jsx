@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+﻿import { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
@@ -7,11 +7,12 @@ const DashboardLayout = lazy(() => import("./layout/DashboardLayout"));
 const MainLayout = lazy(() => import("./layout/MainLayout"));
 const Home = lazy(() => import("./pages/Home"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const Login = lazy(() => import("./pages/Login"));
 const PatientDashboard = lazy(() => import("./pages/PatientDashboard"));
-const PatientLogin = lazy(() => import("./pages/PatientLogin"));
+const PatientAuditLogs = lazy(() => import("./pages/PatientAuditLogs"));
+const PatientNotifications = lazy(() => import("./pages/PatientNotifications"));
 const PatientRegister = lazy(() => import("./pages/PatientRegister"));
 const ProviderDashboard = lazy(() => import("./pages/ProviderDashboard"));
-const ProviderLogin = lazy(() => import("./pages/ProviderLogin"));
 const ProviderRegister = lazy(() => import("./pages/ProviderRegister"));
 const ProviderSettings = lazy(() => import("./pages/ProviderSettings"));
 
@@ -40,6 +41,14 @@ export default function App() {
           <Route element={<MainLayout />}>
             <Route path="/" element={<Home />} />
             <Route
+              path="/login"
+              element={
+                <GuestOnlyRoute>
+                  <Login />
+                </GuestOnlyRoute>
+              }
+            />
+            <Route
               path="/patient/register"
               element={
                 <GuestOnlyRoute>
@@ -51,7 +60,7 @@ export default function App() {
               path="/patient/login"
               element={
                 <GuestOnlyRoute>
-                  <PatientLogin />
+                  <Login />
                 </GuestOnlyRoute>
               }
             />
@@ -67,7 +76,7 @@ export default function App() {
               path="/provider/login"
               element={
                 <GuestOnlyRoute>
-                  <ProviderLogin />
+                  <Login />
                 </GuestOnlyRoute>
               }
             />
@@ -82,6 +91,8 @@ export default function App() {
             }
           >
             <Route index element={<PatientDashboard />} />
+            <Route path="audit" element={<PatientAuditLogs />} />
+            <Route path="notifications" element={<PatientNotifications />} />
           </Route>
 
           <Route
@@ -102,3 +113,5 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
+

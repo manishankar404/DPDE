@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { networkConfig } from "../styles/theme";
 
 export default function Home() {
+  const { isAuthenticated, user } = useAuth();
   const [walletStatus, setWalletStatus] = useState("Not connected");
+  const dashboardPath = user?.role === "patient" ? "/patient/dashboard" : "/provider/dashboard";
 
   useEffect(() => {
     async function checkWallet() {
@@ -35,23 +38,41 @@ export default function Home() {
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
           DPDE enables patients and providers to exchange encrypted health records
-          through blockchain-backed consent workflows and auditable access control.
+          through blockchain-backed consent workflows and auditable access control. Log in with
+          a wallet address using MetaMask.
         </p>
 
-        <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <Link
-            to="/patient/login"
-            className="w-64 rounded-2xl bg-healthcare-blue px-6 py-4 text-center text-base font-semibold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-blue-800"
-          >
-            Patient Portal
-          </Link>
-          <Link
-            to="/provider/login"
-            className="w-64 rounded-2xl bg-healthcare-teal px-6 py-4 text-center text-base font-semibold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-teal-700"
-          >
-            Provider Portal
-          </Link>
-        </div>
+        {isAuthenticated ? (
+          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap">
+            <Link
+              to={dashboardPath}
+              className="w-64 rounded-2xl bg-healthcare-blue px-6 py-4 text-center text-base font-semibold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-blue-800"
+            >
+              Go to Dashboard
+            </Link>
+          </div>
+        ) : (
+          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap">
+            <Link
+              to="/login"
+              className="w-64 rounded-2xl bg-healthcare-blue px-6 py-4 text-center text-base font-semibold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-blue-800"
+            >
+              Login
+            </Link>
+            <Link
+              to="/patient/register"
+              className="w-64 rounded-2xl bg-healthcare-blue px-6 py-4 text-center text-base font-semibold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-blue-800"
+            >
+              Register Patient
+            </Link>
+            <Link
+              to="/provider/register"
+              className="w-64 rounded-2xl bg-healthcare-teal px-6 py-4 text-center text-base font-semibold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-teal-700"
+            >
+              Register Provider
+            </Link>
+          </div>
+        )}
 
         <footer className="mt-16 rounded-xl border border-slate-200 bg-white/80 px-5 py-3 text-sm text-slate-600 shadow-sm">
           <span className="mr-6 font-medium">Network: {networkConfig.name}</span>
@@ -61,4 +82,5 @@ export default function Home() {
     </div>
   );
 }
+
 

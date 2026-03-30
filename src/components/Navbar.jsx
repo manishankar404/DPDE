@@ -1,4 +1,4 @@
-import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+﻿import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import StatusBadge from "./StatusBadge";
@@ -22,20 +22,20 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
   const dashboardPath = user?.role === "patient" ? "/patient/dashboard" : "/provider/dashboard";
   const isDashboard = variant === "dashboard";
   const isMenuOpen = isDashboard ? Boolean(menuOpen) : mobileOpen;
+  const isHome = location.pathname === "/";
 
   const links = useMemo(() => {
+    const baseLinks = isHome ? [] : [{ to: "/", label: "Home" }];
+
     if (isAuthenticated) {
       return [
-        { to: "/", label: "Home" },
-        { to: dashboardPath, label: "Dashboard" },
-        ...(user?.role === "provider"
-          ? [{ to: "/provider/dashboard/settings", label: "Settings" }]
-          : [])
+        ...baseLinks,
+        { to: dashboardPath, label: "Dashboard" }
       ];
     }
 
-    return [{ to: "/", label: "Home" }];
-  }, [dashboardPath, isAuthenticated, user?.role]);
+    return baseLinks;
+  }, [dashboardPath, isAuthenticated, isHome]);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -73,7 +73,7 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
                 ].join(" ")}
                 onClick={handleMobileMenu}
               >
-                {isDashboard ? "☰" : "Menu"}
+                Menu
               </button>
             ) : null}
             <Link to="/" className="flex items-center gap-2">
@@ -123,26 +123,15 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
             ) : (
               <div className="hidden items-center gap-2 sm:flex">
                 <NavLink
-                  to="/patient/login"
+                  to="/login"
                   className={({ isActive }) =>
                     [
-                      "rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50",
-                      isActive ? "ring-2 ring-healthcare-blue/20" : ""
+                      "rounded-xl bg-healthcare-blue px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-blue-800",
+                      isActive ? "ring-2 ring-blue-200" : ""
                     ].join(" ")
                   }
                 >
-                  Patient
-                </NavLink>
-                <NavLink
-                  to="/provider/login"
-                  className={({ isActive }) =>
-                    [
-                      "rounded-xl bg-healthcare-teal px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-teal-700",
-                      isActive ? "ring-2 ring-teal-200" : ""
-                    ].join(" ")
-                  }
-                >
-                  Provider
+                  Login
                 </NavLink>
               </div>
             )}
@@ -207,13 +196,13 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
             ) : (
               <div className="mt-6 grid gap-2">
                 <NavLink
-                  to="/patient/login"
+                  to="/login"
                   className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-center text-sm font-semibold text-slate-700 shadow-sm"
                 >
                   Patient Login
                 </NavLink>
                 <NavLink
-                  to="/provider/login"
+                  to="/login"
                   className="rounded-xl bg-healthcare-teal px-4 py-2 text-center text-sm font-semibold text-white shadow-soft"
                 >
                   Provider Login
@@ -226,3 +215,4 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
     </>
   );
 }
+

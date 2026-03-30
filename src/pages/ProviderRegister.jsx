@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { Link, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
@@ -67,7 +67,7 @@ export default function ProviderRegister() {
         encryptionPublicKey: publicKey
       });
       setSuccess("Provider account created. Redirecting to login...");
-      setTimeout(() => navigate("/provider/login"), 900);
+      setTimeout(() => navigate("/login"), 900);
     } catch (submitError) {
       setError(formatApiError(submitError, "Registration failed."));
     } finally {
@@ -143,7 +143,7 @@ export default function ProviderRegister() {
 
         <p className="mt-4 text-sm text-slate-500">
           Already registered?{" "}
-          <Link to="/provider/login" className="font-medium text-healthcare-blue">
+          <Link to="/login" className="font-medium text-healthcare-blue">
             Login
           </Link>
         </p>
@@ -151,3 +151,4 @@ export default function ProviderRegister() {
     </div>
   );
 }
+

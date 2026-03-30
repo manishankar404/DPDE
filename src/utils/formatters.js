@@ -1,4 +1,4 @@
-export function shortenWallet(wallet = "") {
+﻿export function shortenWallet(wallet = "") {
   const value = String(wallet || "");
   if (!value) return "";
   if (value.length <= 12) return value;
@@ -40,8 +40,9 @@ export function formatActionLog(log = {}) {
       return fileName ? `${actor} viewed ${fileName}` : `${actor} viewed a file`;
     case "DOWNLOAD_FILE":
       return fileName ? `${actor} downloaded ${fileName}` : `${actor} downloaded a file`;
+    case "PRINT_FILE":
+      return fileName ? `${actor} printed ${fileName}` : `${actor} printed a file`;
     default:
       return action ? `${action} ${fileName ? `• ${fileName}` : ""}`.trim() : "Activity";
   }
 }
-
