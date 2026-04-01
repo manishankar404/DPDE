@@ -3,9 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import StatusBadge from "./StatusBadge";
 
-function truncateWallet(wallet = "") {
-  if (!wallet || wallet.length < 10) return wallet || "";
-  return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+function ProfileIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M12 12a4.2 4.2 0 1 0-4.2-4.2A4.2 4.2 0 0 0 12 12Zm0 2.4c-4.64 0-8.4 2.22-8.4 4.96V21h16.8v-1.64c0-2.74-3.76-4.96-8.4-4.96Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
 }
 
 export default function Navbar({ variant = "public", onMenuClick = null, menuOpen = false }) {
@@ -20,6 +26,8 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
   }
 
   const dashboardPath = user?.role === "patient" ? "/patient/dashboard" : "/provider/dashboard";
+  const profilePath =
+    user?.role === "patient" ? "/patient/dashboard/profile" : "/provider/dashboard/profile";
   const isDashboard = variant === "dashboard";
   const isMenuOpen = isDashboard ? Boolean(menuOpen) : mobileOpen;
   const isHome = location.pathname === "/";
@@ -56,7 +64,7 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
 
   return (
     <>
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-600 dark:bg-slate-950/80">
         <div
           className={[
             "flex items-center justify-between gap-3 px-4 py-3",
@@ -81,8 +89,8 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
                 D
               </span>
               <div className="leading-tight">
-                <div className="text-sm font-extrabold tracking-tight text-slate-900">DPDE</div>
-                <div className="hidden text-xs text-slate-500 sm:block">
+                <div className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-slate-100">DPDE</div>
+                <div className="hidden text-xs text-slate-500 dark:text-slate-400 sm:block">
                   Decentralized Patient Data Exchange
                 </div>
               </div>
@@ -105,16 +113,22 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
           <div className="flex items-center gap-2">
             {isAuthenticated ? (
               <>
-                <span className="hidden rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 sm:inline-flex">
-                  Wallet: {truncateWallet(user?.walletAddress) || "Not available"}
-                </span>
-                <span className="hidden rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800 sm:inline-flex">
+                <span className="hidden rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800 dark:bg-blue-950/40 dark:text-blue-200 sm:inline-flex">
                   Network: Sepolia
                 </span>
                 <StatusBadge status={user?.role || "unknown"} />
                 <button
                   type="button"
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  onClick={() => navigate(profilePath)}
+                  title="Profile"
+                  aria-label="Profile"
+                >
+                  <ProfileIcon className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                   onClick={onLogout}
                 >
                   Logout
@@ -146,12 +160,12 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
             onClick={() => setMobileOpen(false)}
             role="presentation"
           />
-          <div className="absolute right-0 top-0 z-50 h-full w-80 max-w-[85vw] bg-white p-4 shadow-xl">
+          <div className="absolute right-0 top-0 z-50 h-full w-80 max-w-[85vw] bg-white p-4 shadow-xl dark:bg-slate-950">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-900">Menu</div>
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Menu</div>
               <button
                 type="button"
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                 onClick={() => setMobileOpen(false)}
               >
                 Close
@@ -178,16 +192,20 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
 
             {isAuthenticated ? (
               <div className="mt-6 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="text-xs font-medium text-slate-500">Signed in as</div>
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Signed in as</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <StatusBadge status={user?.role || "unknown"} />
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                    {truncateWallet(user?.walletAddress) || "Not available"}
-                  </span>
+                  <button
+                    type="button"
+                    className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    onClick={() => navigate(profilePath)}
+                  >
+                    Profile
+                  </button>
                 </div>
                 <button
                   type="button"
-                  className="mt-3 w-full rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50"
+                  className="mt-3 w-full rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-800"
                   onClick={onLogout}
                 >
                   Logout

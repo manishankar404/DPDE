@@ -11,8 +11,11 @@ const Login = lazy(() => import("./pages/Login"));
 const PatientDashboard = lazy(() => import("./pages/PatientDashboard"));
 const PatientAuditLogs = lazy(() => import("./pages/PatientAuditLogs"));
 const PatientNotifications = lazy(() => import("./pages/PatientNotifications"));
+const PatientProfile = lazy(() => import("./pages/PatientProfile"));
+const PatientSettings = lazy(() => import("./pages/PatientSettings"));
 const PatientRegister = lazy(() => import("./pages/PatientRegister"));
 const ProviderDashboard = lazy(() => import("./pages/ProviderDashboard"));
+const ProviderProfile = lazy(() => import("./pages/ProviderProfile"));
 const ProviderRegister = lazy(() => import("./pages/ProviderRegister"));
 const ProviderSettings = lazy(() => import("./pages/ProviderSettings"));
 
@@ -93,6 +96,8 @@ export default function App() {
             <Route index element={<PatientDashboard />} />
             <Route path="audit" element={<PatientAuditLogs />} />
             <Route path="notifications" element={<PatientNotifications />} />
+            <Route path="profile" element={<PatientProfile />} />
+            <Route path="settings" element={<PatientSettings />} />
           </Route>
 
           <Route
@@ -105,6 +110,7 @@ export default function App() {
           >
             <Route index element={<ProviderDashboard />} />
             <Route path="settings" element={<ProviderSettings />} />
+            <Route path="profile" element={<ProviderProfile />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />

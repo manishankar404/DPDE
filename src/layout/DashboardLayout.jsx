@@ -34,11 +34,12 @@ export default function DashboardLayout() {
   }
 
   return (
-    <div className="flex min-h-screen bg-healthcare-bg">
+    <div className="flex min-h-screen bg-healthcare-bg dark:bg-slate-950">
       {desktopSidebarOpen ? (
         <div className="hidden md:block">
           <div className="sticky top-0 h-screen">
             <Sidebar
+              user={user}
               role={user?.role}
               collapsed={false}
               onToggle={() => setDesktopSidebarOpen(false)}
@@ -55,8 +56,9 @@ export default function DashboardLayout() {
             onClick={() => setMobileOpen(false)}
             role="presentation"
           />
-          <div className="relative z-50 h-full w-64 bg-white">
+          <div className="relative z-50 h-full w-64 bg-white dark:bg-slate-950">
             <Sidebar
+              user={user}
               role={user?.role}
               collapsed={false}
               onToggle={() => setMobileOpen(false)}

@@ -4,6 +4,7 @@ import {
   getMyPatientProfile,
   getPatientById,
   registerPatient,
+  searchPatients,
   updateMyNotificationSettings,
   updateMyPatientProfile
 } from "../controllers/patientController.js";
@@ -17,6 +18,7 @@ router.get("/me", authenticate, authorizeRole("patient"), getMyPatientProfile);
 router.put("/me", authenticate, authorizeRole("patient"), updateMyPatientProfile);
 router.get("/me/notifications", authenticate, authorizeRole("patient"), getMyNotificationSettings);
 router.put("/me/notifications", authenticate, authorizeRole("patient"), updateMyNotificationSettings);
+router.get("/search", authenticate, authorizeRole("provider"), searchPatients);
 router.get("/:patientId", getPatientById);
 
 export default router;

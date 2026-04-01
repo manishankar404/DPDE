@@ -4,7 +4,7 @@ const toneClasses = {
   success: "border-green-200 bg-green-50 text-green-800",
   error: "border-red-200 bg-red-50 text-red-800",
   warning: "border-amber-200 bg-amber-50 text-amber-800",
-  info: "border-slate-200 bg-white text-slate-700"
+  info: "border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
 };
 
 export default function Toast({ toast, onClose }) {
@@ -33,4 +33,3 @@ export default function Toast({ toast, onClose }) {
     </div>
   );
 }
-

@@ -222,11 +222,23 @@ export function logProviderFileAction(data) {
   });
 }
 
+export function logPatientFileAction(data) {
+  return request("/audit/patient/file-action", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
 export function resolveProfiles(wallets = []) {
   return request("/profiles/resolve", {
     method: "POST",
     body: JSON.stringify({ wallets })
   });
+}
+
+export function searchPatients(query = "") {
+  const value = encodeURIComponent(String(query || "").trim());
+  return request(`/patients/search?query=${value}`);
 }
 
 export function resolveProfile(walletAddress) {

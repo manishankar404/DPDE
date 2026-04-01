@@ -5,9 +5,11 @@ import Button from "../components/Button";
 import Card from "../components/Card";
 import Toast from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 
 export default function ProviderSettings() {
   const { user } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState([]);
 
@@ -42,12 +44,34 @@ export default function ProviderSettings() {
 
   return (
     <div className="space-y-6">
+      <Card title="Theme" subtitle="Choose light or dark mode">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant={theme === "light" ? "primary" : "ghost"}
+            onClick={() => setTheme("light")}
+          >
+            Light
+          </Button>
+          <Button
+            type="button"
+            variant={theme === "dark" ? "primary" : "ghost"}
+            onClick={() => setTheme("dark")}
+          >
+            Dark
+          </Button>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Saved on this device.
+          </p>
+        </div>
+      </Card>
+
       <Card title="Provider Settings" subtitle="Manage wallet encryption settings">
         <div className="flex flex-wrap items-center gap-3">
           <Button type="button" variant="accent" loading={loading} onClick={handleUpdateKey}>
             Update Encryption Key
           </Button>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
             Update this after changing wallets or when key sync is required.
           </p>
         </div>

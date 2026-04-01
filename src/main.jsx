@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import { AccessProvider } from "./context/AccessContext";
 import { AuthProvider } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { ensureSepolia } from "./blockchain/consent";
 import "./index.css";
 import { Buffer } from "buffer";
@@ -22,10 +23,12 @@ ensureSepolia().catch((error) => {
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <AuthProvider>
-      <AccessProvider>
-        <App />
-      </AccessProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AccessProvider>
+          <App />
+        </AccessProvider>
+      </AuthProvider>
+    </ThemeProvider>
   </StrictMode>
 );

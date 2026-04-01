@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getPatientAuditLogs, logProviderFileAction } from "../controllers/auditController.js";
+import { getPatientAuditLogs, logPatientFileAction, logProviderFileAction } from "../controllers/auditController.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { authorizeRole } from "../middleware/authorizeRole.js";
 
@@ -12,6 +12,6 @@ router.use((req, res, next) => {
 
 router.get("/patient/:wallet", authenticate, authorizeRole("patient"), getPatientAuditLogs);
 router.post("/file-action", authenticate, authorizeRole("provider"), logProviderFileAction);
+router.post("/patient/file-action", authenticate, authorizeRole("patient"), logPatientFileAction);
 
 export default router;
-

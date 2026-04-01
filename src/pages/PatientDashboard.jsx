@@ -8,6 +8,7 @@ import {
   getMyPatientProfile,
   getFilesByPatient,
   getProviderByWallet,
+  logPatientFileAction,
   registerFile,
   resolveProfiles,
   updateMyPatientProfile,
@@ -162,6 +163,10 @@ export default function PatientDashboard() {
 
   const [files, setFiles] = useState([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
+  const [fileSearchQuery, setFileSearchQuery] = useState("");
+  const [requestSearchQuery, setRequestSearchQuery] = useState("");
+  const [accessSearchQuery, setAccessSearchQuery] = useState("");
+  const [revokingAll, setRevokingAll] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dragActive, setDragActive] = useState(false);
@@ -337,9 +342,9 @@ export default function PatientDashboard() {
 
           return `
             <tr>
-              <td>${timestamp}</td>
               <td><span class="badge badge-${action}">${action || "UNKNOWN"}</span></td>
               <td>${description}</td>
+              <td>${timestamp}</td>
             </tr>
           `;
         })
@@ -376,16 +381,16 @@ export default function PatientDashboard() {
           <body>
             <h1>Recent Activity</h1>
             <p class="sub">
-              Patient: ${escapeHtml(shortenWallet(wallet))} â€¢ Generated: ${escapeHtml(
+              Patient: ${escapeHtml(shortenWallet(wallet))} • Generated: ${escapeHtml(
                 new Date().toLocaleString()
-              )} â€¢ Records: ${exportLogs.length}
+              )} • Records: ${exportLogs.length}
             </p>
             <table>
               <thead>
                 <tr>
-                  <th style="width: 16%;">Timestamp</th>
                   <th style="width: 12%;">Action</th>
                   <th>Description</th>
+                  <th style="width: 16%;">Timestamp</th>
                 </tr>
               </thead>
               <tbody>${rowsHtml}</tbody>
@@ -442,6 +447,112 @@ export default function PatientDashboard() {
     } finally {
       setExportingLogs(false);
     }
+  }
+
+  const filteredFiles = useMemo(() => {
+    if (!Array.isArray(files)) return [];
+    const needle = String(fileSearchQuery || "").trim().toLowerCase();
+    if (!needle) return files;
+    return files.filter((file) => {
+      const fileName = String(file?.fileName || "").toLowerCase();
+      const cid = String(file?.cid || "").toLowerCase();
+      const fileType = String(file?.fileType || "").toLowerCase();
+      return `${fileName} ${cid} ${fileType}`.includes(needle);
+    });
+  }, [fileSearchQuery, files]);
+
+  function providerSearchText(providerWallet) {
+    const walletKey = String(providerWallet || "").toLowerCase();
+    const profile = profilesByWallet[walletKey] || {};
+    const label = formatProvider({
+      providerWallet,
+      providerName: profile.name,
+      providerDisplay: profile.display
+    });
+    return `${label} ${walletKey}`.toLowerCase();
+  }
+
+  const filteredPendingRequests = useMemo(() => {
+    if (!Array.isArray(pendingRequests)) return [];
+    const needle = String(requestSearchQuery || "").trim().toLowerCase();
+    if (!needle) return pendingRequests;
+    return pendingRequests.filter((provider) => providerSearchText(provider).includes(needle));
+  }, [pendingRequests, profilesByWallet, requestSearchQuery]);
+
+  const filteredGrantedProviders = useMemo(() => {
+    if (!Array.isArray(grantedProviders)) return [];
+    const needle = String(accessSearchQuery || "").trim().toLowerCase();
+    if (!needle) return grantedProviders;
+    return grantedProviders.filter((provider) => providerSearchText(provider).includes(needle));
+  }, [accessSearchQuery, grantedProviders, profilesByWallet]);
+
+  async function revokeAllProviders() {
+    if (!grantedProviders.length) return;
+    if (revokingAll) return;
+    if (typeof window !== "undefined") {
+      const ok = window.confirm("Revoke access for all doctors?");
+      if (!ok) return;
+    }
+
+    setRevokingAll(true);
+    try {
+      for (const provider of grantedProviders) {
+        try {
+          await revokeAccess(provider);
+        } catch {
+          // ignore individual failures
+        }
+        try {
+          await revokeWrappedKeys({
+            patientId: user.patientId,
+            providerWallet: provider
+          });
+        } catch {
+          // ignore individual failures
+        }
+      }
+      addToast("All provider access revoked.", "success");
+      await refreshGrantedProviders(user.walletAddress);
+    } catch (error) {
+      addToast(formatApiError(error, "Failed to revoke all access."), "error");
+    } finally {
+      setRevokingAll(false);
+    }
+  }
+
+  function exportRecentAuditCsv() {
+    if (!filteredLogs.length) return;
+    const rows = filteredLogs.map((log) => {
+      const tsRaw = log?.timestamp || log?.createdAt || "";
+      const time = tsRaw ? new Date(tsRaw).toISOString() : "";
+      const actionValue = String(log?.action || "");
+      const details = String(formatActionLog(log) || "");
+      const actor =
+        String(log?.providerDisplay || "").trim() ||
+        String(log?.providerName || "").trim() ||
+        String(log?.providerWallet || "").trim() ||
+        "";
+      const fileName = String(log?.fileName || "");
+      const cid = String(log?.cid || "");
+      const role = String(log?.role || "");
+
+      return [actionValue, role, actor, fileName, cid, details, time]
+        .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+        .join(",");
+    });
+
+    const header = ["action", "role", "actor", "fileName", "cid", "details", "time"].join(",");
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dpde_recent_activity_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async function refreshAll() {
@@ -825,8 +936,61 @@ export default function PatientDashboard() {
       link.click();
       link.remove();
       addToast("File download started.", "success");
+      if (file?.cid) {
+        const payload = {
+          action: "DOWNLOAD_FILE",
+          cid: file.cid,
+          ...(user?.patientId ? { patientId: user.patientId } : {})
+        };
+        logPatientFileAction(payload)
+          .then(() => loadAuditLogs())
+          .catch(() => {});
+      }
     } catch (error) {
       addToast(formatApiError(error, "Failed to download file."), "error");
+    } finally {
+      setFileActionLoading("");
+    }
+  }
+
+  async function printFile(file) {
+    setFileActionLoading(`print_${file.cid}`);
+    let frame = null;
+    try {
+      const { url } = await decryptToObjectUrl(file);
+      frame = document.createElement("iframe");
+      frame.style.position = "fixed";
+      frame.style.right = "0";
+      frame.style.bottom = "0";
+      frame.style.width = "0";
+      frame.style.height = "0";
+      frame.style.border = "0";
+      frame.onload = () => {
+        try {
+          const frameWindow = frame.contentWindow;
+          frameWindow?.focus();
+          frameWindow?.print();
+        } catch {
+          // ignore
+        }
+        setTimeout(() => frame?.remove(), 1000);
+      };
+      frame.src = url;
+      document.body.appendChild(frame);
+      addToast("Print dialog opened.", "success");
+      if (file?.cid) {
+        const payload = {
+          action: "PRINT_FILE",
+          cid: file.cid,
+          ...(user?.patientId ? { patientId: user.patientId } : {})
+        };
+        logPatientFileAction(payload)
+          .then(() => loadAuditLogs())
+          .catch(() => {});
+      }
+    } catch (error) {
+      frame?.remove();
+      addToast(formatApiError(error, "Failed to print file."), "error");
     } finally {
       setFileActionLoading("");
     }
@@ -853,6 +1017,16 @@ export default function PatientDashboard() {
         isNifti
       });
       addToast("File opened in web preview.", "success");
+      if (file?.cid) {
+        const payload = {
+          action: "VIEW_FILE",
+          cid: file.cid,
+          ...(user?.patientId ? { patientId: user.patientId } : {})
+        };
+        logPatientFileAction(payload)
+          .then(() => loadAuditLogs())
+          .catch(() => {});
+      }
     } catch (error) {
       addToast(formatApiError(error, "Failed to preview file."), "error");
     } finally {
@@ -901,26 +1075,15 @@ export default function PatientDashboard() {
 
   return (
     <div className="space-y-6">
-      <Card title="Your Profile">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={openProfileEditor}>
-            Edit Profile
-          </Button>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+      <Card title="Welcome">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <div className="text-xs font-medium text-slate-500">Name</div>
             <div className="text-sm font-semibold text-slate-900">{user?.name || "Patient"}</div>
           </div>
           <div>
             <div className="text-xs font-medium text-slate-500">Patient ID</div>
-            <div className="text-sm text-slate-700">{user?.patientId || "â€”"}</div>
-          </div>
-          <div>
-            <div className="text-xs font-medium text-slate-500">Wallet</div>
-            <div className="font-mono text-sm text-slate-700">
-              {shortenWallet(user?.walletAddress) || "â€”"}
-            </div>
+            <div className="text-sm text-slate-700">{user?.patientId || "—"}</div>
           </div>
         </div>
       </Card>
@@ -957,7 +1120,9 @@ export default function PatientDashboard() {
         <div
           className={[
             "rounded-2xl border-2 border-dashed p-8 text-center transition",
-            dragActive ? "border-healthcare-teal bg-teal-50" : "border-slate-300 bg-slate-50"
+            dragActive
+              ? "border-healthcare-teal bg-teal-50 dark:bg-teal-950/20"
+              : "border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40"
           ].join(" ")}
           onDragOver={(event) => {
             event.preventDefault();
@@ -966,7 +1131,7 @@ export default function PatientDashboard() {
           onDragLeave={() => setDragActive(false)}
           onDrop={onDrop}
         >
-          <p className="mb-3 text-sm text-slate-600">
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
             Supported: DICOM (.dcm/.dicom), NIfTI (.nii/.nii.gz/.nia), images, PDF, text,
             audio, video. Unsupported formats will be blocked.
           </p>
@@ -983,9 +1148,9 @@ export default function PatientDashboard() {
         </div>
 
         {uploadPreview.files.length ? (
-          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-sm">
-            <p className="font-medium text-slate-700">Ready to upload</p>
-            <ul className="mt-2 space-y-1 text-slate-600">
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-600 dark:bg-slate-950/30">
+            <p className="font-medium text-slate-700 dark:text-slate-200">Ready to upload</p>
+            <ul className="mt-2 space-y-1 text-slate-600 dark:text-slate-300">
               {uploadPreview.files.map((name) => (
                 <li key={name}>{name}</li>
               ))}
@@ -1020,8 +1185,21 @@ export default function PatientDashboard() {
           />
         ) : (
           <>
+            <div className="mb-3">
+              <Input
+                id="doctorRequestSearch"
+                label="Search doctors"
+                value={requestSearchQuery}
+                onChange={(event) => setRequestSearchQuery(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+
+            {filteredPendingRequests.length === 0 ? (
+              <EmptyState title="No matching requests" description="Try a different search term." />
+            ) : (
             <div className="grid gap-3 md:hidden">
-              {pendingRequests.map((provider) => {
+              {filteredPendingRequests.map((provider) => {
                 const isBusy = actionLoadingKey === provider;
                 const profile = profilesByWallet[String(provider || "").toLowerCase()] || {};
                 const providerLabel = formatProvider({
@@ -1033,12 +1211,12 @@ export default function PatientDashboard() {
                 return (
                   <div
                     key={provider}
-                    className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-950/30"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-xs font-medium text-slate-500">Doctor</div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">
+                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
                           {providerLabel}
                         </div>
                       </div>
@@ -1069,18 +1247,20 @@ export default function PatientDashboard() {
                 );
               })}
             </div>
+            )}
 
+            {filteredPendingRequests.length ? (
             <div className="hidden overflow-x-auto md:block">
               <table className="min-w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500">
+                  <tr className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-300">
                     <th className="py-2">Doctor</th>
                     <th className="py-2">Status</th>
                     <th className="py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingRequests.map((provider) => {
+                  {filteredPendingRequests.map((provider) => {
                     const isBusy = actionLoadingKey === provider;
                     const profile =
                       profilesByWallet[String(provider || "").toLowerCase()] || {};
@@ -1091,8 +1271,8 @@ export default function PatientDashboard() {
                     });
 
                     return (
-                      <tr key={provider} className="border-b border-slate-100">
-                        <td className="py-3 text-sm font-semibold text-slate-900">
+                      <tr key={provider} className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
                           {providerLabel}
                         </td>
                         <td className="py-3">
@@ -1124,11 +1304,26 @@ export default function PatientDashboard() {
                 </tbody>
               </table>
             </div>
+            ) : null}
           </>
         )}
       </Card>
 
-      <Card title="Doctors with Access" subtitle="Doctors who currently have access">
+      <Card
+        title="Doctors with Access"
+        subtitle="Doctors who currently have access"
+        headerRight={
+          <Button
+            type="button"
+            variant="danger"
+            loading={revokingAll}
+            disabled={revokingAll || Boolean(accessActionLoading)}
+            onClick={revokeAllProviders}
+          >
+            Revoke all
+          </Button>
+        }
+      >
         {grantedProviders.length === 0 ? (
           <EmptyState
             title="No active access"
@@ -1136,8 +1331,21 @@ export default function PatientDashboard() {
           />
         ) : (
           <>
+            <div className="mb-3">
+              <Input
+                id="doctorAccessSearch"
+                label="Search doctors"
+                value={accessSearchQuery}
+                onChange={(event) => setAccessSearchQuery(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+
+            {filteredGrantedProviders.length === 0 ? (
+              <EmptyState title="No matching doctors" description="Try a different search term." />
+            ) : (
             <div className="grid gap-3 md:hidden">
-              {grantedProviders.map((provider) => {
+              {filteredGrantedProviders.map((provider) => {
                 const isRevoking = accessActionLoading === `revoke_${provider}`;
                 const isWrapping = accessActionLoading === `wrap_${provider}`;
                 const expiryLabel = accessExpiryByProvider[provider]
@@ -1153,20 +1361,20 @@ export default function PatientDashboard() {
                 return (
                   <div
                     key={provider}
-                    className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-950/30"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-xs font-medium text-slate-500">Doctor</div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">
+                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
                           {providerLabel}
                         </div>
                       </div>
                       <StatusBadge status="approved" />
                     </div>
 
-                    <div className="mt-3 text-xs text-slate-600">
-                      <span className="font-medium text-slate-500">Expires:</span>{" "}
+                    <div className="mt-3 text-xs text-slate-600 dark:text-slate-300">
+                      <span className="font-medium text-slate-500 dark:text-slate-400">Expires:</span>{" "}
                       {expiryLabel}
                     </div>
 
@@ -1194,11 +1402,13 @@ export default function PatientDashboard() {
                 );
               })}
             </div>
+            )}
 
+            {filteredGrantedProviders.length ? (
             <div className="hidden overflow-x-auto md:block">
               <table className="min-w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500">
+                  <tr className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-300">
                     <th className="py-2">Doctor</th>
                     <th className="py-2">Status</th>
                     <th className="py-2">Expires</th>
@@ -1206,7 +1416,7 @@ export default function PatientDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {grantedProviders.map((provider) => {
+                  {filteredGrantedProviders.map((provider) => {
                     const isRevoking = accessActionLoading === `revoke_${provider}`;
                     const isWrapping = accessActionLoading === `wrap_${provider}`;
                     const profile =
@@ -1217,14 +1427,14 @@ export default function PatientDashboard() {
                       providerDisplay: profile.display
                     });
                     return (
-                      <tr key={provider} className="border-b border-slate-100">
-                        <td className="py-3 text-sm font-semibold text-slate-900">
+                      <tr key={provider} className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
                           {providerLabel}
                         </td>
                         <td className="py-3">
                           <StatusBadge status="approved" />
                         </td>
-                        <td className="py-3 text-xs text-slate-600">
+                        <td className="py-3 text-xs text-slate-600 dark:text-slate-300">
                           {accessExpiryByProvider[provider]
                             ? new Date(accessExpiryByProvider[provider] * 1000).toLocaleString()
                             : "Unknown"}
@@ -1255,6 +1465,7 @@ export default function PatientDashboard() {
                 </tbody>
               </table>
             </div>
+            ) : null}
           </>
         )}
       </Card>
@@ -1275,22 +1486,39 @@ export default function PatientDashboard() {
         ) : files.length === 0 ? (
           <EmptyState title="No files uploaded yet" description="Upload your first file to begin." />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {files.map((file) => {
+          <>
+            <div className="mb-3">
+              <Input
+                id="patientFileSearch"
+                label="Search files"
+                value={fileSearchQuery}
+                onChange={(event) => setFileSearchQuery(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            {filteredFiles.length === 0 ? (
+              <EmptyState
+                title="No matching files"
+                description="Try a different search term."
+              />
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {filteredFiles.map((file) => {
               const loadingDownload = fileActionLoading === `open_${file.cid}`;
+              const loadingPrint = fileActionLoading === `print_${file.cid}`;
               const loadingView = fileActionLoading === `view_${file.cid}`;
               const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
               const hasKeyMaterial = Boolean(
                 (file.encryptedKeyForPatient && file.iv) || (keyCandidate && ivCandidate)
               );
-              return (
-                <div
-                  key={file._id || `${file.cid}_${file.uploadedAt}`}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                >
-                  <p className="text-sm font-semibold text-slate-800">{file.fileName}</p>
-                  {file.fileType && file.fileType !== "Unknown" && file.fileType !== "Unknown type" ? (
-                    <p className="mt-1 text-xs text-slate-500">{file.fileType}</p>
+                  return (
+                    <div
+                      key={file._id || `${file.cid}_${file.uploadedAt}`}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-950/30"
+                    >
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{file.fileName}</p>
+                      {file.fileType && file.fileType !== "Unknown" && file.fileType !== "Unknown type" ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{file.fileType}</p>
                   ) : null}
                   {!hasKeyMaterial ? (
                     <p className="mt-2 text-xs text-amber-700">
@@ -1311,6 +1539,15 @@ export default function PatientDashboard() {
                       <Button
                         type="button"
                         variant="ghost"
+                        loading={loadingPrint}
+                        disabled={!hasKeyMaterial}
+                        onClick={() => printFile(file)}
+                      >
+                        Print
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
                         loading={loadingDownload}
                         disabled={!hasKeyMaterial}
                         onClick={() => openFile(file)}
@@ -1321,19 +1558,21 @@ export default function PatientDashboard() {
                   </div>
                 </div>
               );
-            })}
-          </div>
+                })}
+              </div>
+            )}
+          </>
         )}
       </Card>
 
       <Card title="Recent Activity">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-slate-500">
+          <div className="text-sm text-slate-500 dark:text-slate-400">
             Latest 10 actions across uploads, access changes, and doctor activity.
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
               value={logFilter}
               onChange={(event) => setLogFilter(event.target.value)}
             >
@@ -1351,6 +1590,14 @@ export default function PatientDashboard() {
               onClick={downloadAuditPdf}
             >
               Download PDF
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={loadingLogs || filteredLogs.length === 0}
+              onClick={exportRecentAuditCsv}
+            >
+              Export CSV
             </Button>
             <Button
               type="button"
@@ -1380,7 +1627,7 @@ export default function PatientDashboard() {
               return (
                 <div
                   key={log._id || `${log.action}_${log.timestamp}_${log.cid || ""}_${log.providerWallet || ""}`}
-                  className="rounded-xl border border-slate-200 bg-white p-4"
+                  className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-600 dark:bg-slate-950/30"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <span
@@ -1394,7 +1641,7 @@ export default function PatientDashboard() {
                     <div className="text-xs text-slate-500">{timestampLabel}</div>
                   </div>
 
-                  <div className="mt-3 text-sm text-slate-800">{description}</div>
+                  <div className="mt-3 text-sm text-slate-800 dark:text-slate-100">{description}</div>
                 </div>
               );
             })}
@@ -1468,7 +1715,7 @@ export default function PatientDashboard() {
           <iframe
             src={preview.url}
             title={preview.name}
-            className="h-[70vh] w-full rounded-xl border border-slate-200"
+            className="h-[70vh] w-full rounded-xl border border-slate-200 dark:border-slate-600"
           />
         ) : preview.type.startsWith("video/") ? (
           <video src={preview.url} controls className="max-h-[70vh] w-full rounded-xl" />
@@ -1478,7 +1725,7 @@ export default function PatientDashboard() {
           <iframe
             src={preview.url}
             title={preview.name}
-            className="h-[70vh] w-full rounded-xl border border-slate-200"
+            className="h-[70vh] w-full rounded-xl border border-slate-200 dark:border-slate-600"
           />
         ) : (
           <div className="space-y-3">

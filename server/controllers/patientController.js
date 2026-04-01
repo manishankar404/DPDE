@@ -176,3 +176,32 @@ export async function updateMyNotificationSettings(req, res, next) {
     return next(error);
   }
 }
+
+export async function searchPatients(req, res, next) {
+  try {
+    const query = String(req.query.query || req.query.q || "").trim();
+    if (!query) {
+      return res.status(200).json({ results: [] });
+    }
+
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(escaped, "i");
+
+    const results = await Patient.find(
+      { $or: [{ name: regex }, { patientId: regex }] },
+      { patientId: 1, name: 1 }
+    )
+      .sort({ name: 1 })
+      .limit(15)
+      .lean();
+
+    return res.status(200).json({
+      results: (results || []).map((patient) => ({
+        patientId: patient.patientId,
+        name: patient.name
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+}

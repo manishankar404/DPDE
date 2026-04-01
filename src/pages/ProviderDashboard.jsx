@@ -5,6 +5,7 @@ import {
   getMyProviderProfile,
   getPatientById,
   logProviderFileAction,
+  searchPatients,
   updateMyProviderProfile
 } from "../api";
 import { getCurrentWalletAddress, hasAccess, requestPatientAccess, getAccessExpiry } from "../blockchain/consent";
@@ -104,9 +105,14 @@ export default function ProviderDashboard() {
   const { user, updateUser } = useAuth();
   const { patientAccessStatus, refreshAccessStatus } = useAccess();
   const [patientId, setPatientId] = useState("");
+  const [patientName, setPatientName] = useState("");
+  const [patientSearchQuery, setPatientSearchQuery] = useState("");
+  const [patientMatches, setPatientMatches] = useState([]);
+  const [loadingPatientMatches, setLoadingPatientMatches] = useState(false);
   const [patientIdError, setPatientIdError] = useState("");
   const [patientAddress, setPatientAddress] = useState("");
   const [files, setFiles] = useState([]);
+  const [fileSearchQuery, setFileSearchQuery] = useState("");
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [actionLoading, setActionLoading] = useState("");
   const [unlockLoading, setUnlockLoading] = useState(false);
@@ -139,6 +145,53 @@ export default function ProviderDashboard() {
   function removeToast(id) {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }
+
+  const filteredFiles = useMemo(() => {
+    if (!Array.isArray(files)) return [];
+    const needle = String(fileSearchQuery || "").trim().toLowerCase();
+    if (!needle) return files;
+    return files.filter((file) => {
+      const fileName = String(file?.fileName || "").toLowerCase();
+      const cid = String(file?.cid || "").toLowerCase();
+      const fileType = String(file?.fileType || "").toLowerCase();
+      return `${fileName} ${cid} ${fileType}`.includes(needle);
+    });
+  }, [fileSearchQuery, files]);
+
+  useEffect(() => {
+    let active = true;
+    const query = String(patientSearchQuery || "").trim();
+    if (query.length < 2) {
+      setPatientMatches([]);
+      setLoadingPatientMatches(false);
+      return undefined;
+    }
+
+    setLoadingPatientMatches(true);
+    const timer = setTimeout(() => {
+      searchPatients(query)
+        .then((response) => {
+          if (!active) return;
+          const results = Array.isArray(response?.results) ? response.results : [];
+          setPatientMatches(results);
+          setPatientIdError("");
+        })
+        .catch((error) => {
+          if (!active) return;
+          setPatientMatches([]);
+          setPatientIdError(formatApiError(error, "Unable to search patients."));
+        })
+        .finally(() => {
+          if (!active) return;
+          setLoadingPatientMatches(false);
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [patientSearchQuery]);
 
   function openProfileEditor() {
     setProfileForm({
@@ -255,21 +308,42 @@ export default function ProviderDashboard() {
     return "Not Requested";
   }, [patientAccessStatus]);
 
-  async function searchPatientFiles() {
-    if (!patientId.trim()) {
-      setPatientIdError("Patient ID is required.");
+  async function searchPatientFiles(patientIdOverride = "") {
+    const raw = patientIdOverride || patientSearchQuery || patientId;
+    const query = String(raw || "").trim();
+    if (!query) {
+      setPatientIdError("Patient ID or patient name is required.");
       return;
     }
 
     setPatientIdError("");
     setLoadingSearch(true);
     try {
-      const trimmedId = patientId.trim();
+      let trimmedId = query;
+      const looksLikePatientId = /^P-[A-Z0-9-]+$/i.test(trimmedId);
+      if (!looksLikePatientId) {
+        const response = await searchPatients(trimmedId);
+        const results = Array.isArray(response?.results) ? response.results : [];
+        if (results.length === 1) {
+          trimmedId = results[0].patientId;
+        } else if (results.length > 1) {
+          setPatientMatches(results);
+          setPatientIdError("Select a patient from the list.");
+          return;
+        } else {
+          setPatientIdError("No matching patients found.");
+          return;
+        }
+      }
+
+      setPatientId(trimmedId);
+      setPatientSearchQuery(trimmedId);
       const providerWallet = user?.walletAddress || (await getCurrentWalletAddress());
 
       // Fetch patient first so the access UI renders even if file listing is forbidden.
       const patient = await getPatientById(trimmedId);
       setPatientAddress(patient.walletAddress);
+      setPatientName(patient.name || "");
 
       const status = await refreshAccessStatus(patient.walletAddress);
       if (!status) {
@@ -287,18 +361,31 @@ export default function ProviderDashboard() {
       // Otherwise the backend will 403 (source-of-truth enforcement).
       if (status !== "approved") {
         setFiles([]);
+        setFileSearchQuery("");
         return;
       }
 
       const fileList = await getFilesByPatient(trimmedId, providerWallet);
       setFiles(Array.isArray(fileList) ? fileList : []);
+      setFileSearchQuery("");
     } catch (error) {
       setFiles([]);
       setPatientAddress("");
-      addToast(formatApiError(error, "Failed to search patient records."), "error");
+      setPatientName("");
+      const message = formatApiError(error, "Failed to search patient records.");
+      setPatientIdError(message);
+      addToast(message, "error");
     } finally {
       setLoadingSearch(false);
     }
+  }
+
+  function selectPatient(match) {
+    if (!match?.patientId) return;
+    setPatientMatches([]);
+    setPatientIdError("");
+    setPatientSearchQuery(match.patientId);
+    searchPatientFiles(match.patientId).catch(() => {});
   }
 
   async function requestFullAccess() {
@@ -502,24 +589,15 @@ export default function ProviderDashboard() {
 
   return (
     <div className="space-y-6">
-      <Card title="Your Profile">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={openProfileEditor}>
-            Edit Profile
-          </Button>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+      <Card title="Welcome">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <div className="text-xs font-medium text-slate-500">Name</div>
+            <div className="text-xs font-medium text-slate-500">Doctor</div>
             <div className="text-sm font-semibold text-slate-900">{user?.name || "Doctor"}</div>
           </div>
           <div>
             <div className="text-xs font-medium text-slate-500">Hospital</div>
-            <div className="text-sm text-slate-700">{user?.hospitalName || "â€”"}</div>
-          </div>
-          <div>
-            <div className="text-xs font-medium text-slate-500">Specialization</div>
-            <div className="text-sm text-slate-700">{user?.specialization || "â€”"}</div>
+            <div className="text-sm text-slate-700">{user?.hospitalName || "—"}</div>
           </div>
         </div>
       </Card>
@@ -581,31 +659,52 @@ export default function ProviderDashboard() {
         </form>
       </Modal>
 
-      <Card title="Search Patient Records" subtitle="Enter patient ID to retrieve all files">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+      <Card title="Search Patient Records" subtitle="Search by patient ID or patient name">
+        <form
+          className="grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            searchPatientFiles();
+          }}
+        >
           <Input
             id="providerPatientId"
-            label="Patient ID"
-            value={patientId}
-            onChange={(event) => setPatientId(event.target.value)}
+            label="Patient ID or Name"
+            value={patientSearchQuery}
+            onChange={(event) => setPatientSearchQuery(event.target.value)}
             error={patientIdError}
           />
-          <Button
-            type="button"
-            className="h-11 md:self-end"
-            loading={loadingSearch}
-            onClick={searchPatientFiles}
-          >
-            Search Files
-          </Button>
-        </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Press Enter to search.
+          </div>
+        </form>
+        {loadingPatientMatches ? (
+          <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Searching patients…</div>
+        ) : patientMatches.length ? (
+          <div className="mt-2 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-600 dark:bg-slate-950/30">
+            <div className="text-xs font-medium text-slate-600 dark:text-slate-300">Matching patients</div>
+            <div className="mt-2 grid gap-1">
+              {patientMatches.map((match) => (
+                <button
+                  key={match.patientId}
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                  onClick={() => selectPatient(match)}
+                >
+                  <span className="font-medium">{match.name || "Patient"}</span>
+                  <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{match.patientId}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </Card>
 
       {patientAddress ? (
         <Card title="Access Status">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-              Patient ID: {patientId || "â€”"}
+              Patient: {patientName ? `${patientName} (${patientId || "—"})` : `Patient ID: ${patientId || "—"}`}
             </span>
             <StatusBadge status={patientAccessStatus || "unknown"} />
             <span className="text-xs text-slate-600">{accessBadge}</span>
@@ -658,8 +757,21 @@ export default function ProviderDashboard() {
         ) : files.length === 0 ? (
           <EmptyState title="No files found" description="Search a patient to view records." />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {files.map((file) => {
+          <>
+            <div className="mb-3">
+              <Input
+                id="providerFileSearch"
+                label="Search files"
+                value={fileSearchQuery}
+                onChange={(event) => setFileSearchQuery(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            {filteredFiles.length === 0 ? (
+              <EmptyState title="No matching files" description="Try a different search term." />
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {filteredFiles.map((file) => {
               const loadingPrint = actionLoading === `print_${file.cid}`;
               const loadingView = actionLoading === `view_${file.cid}`;
               const { keyCandidate, ivCandidate } = getEncryptedMaterial(file);
@@ -668,14 +780,14 @@ export default function ProviderDashboard() {
                 !isWrappedKey(keyCandidate) && keyCandidate && ivCandidate
               );
               const hasKeyMaterial = hasWrappedKey || hasLegacyKey;
-              return (
-                <div
-                  key={file._id || file.cid}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                >
-                  <p className="text-sm font-semibold text-slate-800">{file.fileName}</p>
-                  {file.fileType && file.fileType !== "Unknown" && file.fileType !== "Unknown type" ? (
-                    <p className="mt-1 text-xs text-slate-500">{file.fileType}</p>
+                  return (
+                    <div
+                      key={file._id || file.cid}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-950/30"
+                    >
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{file.fileName}</p>
+                      {file.fileType && file.fileType !== "Unknown" && file.fileType !== "Unknown type" ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{file.fileType}</p>
                   ) : null}
                   {!hasKeyMaterial ? (
                     <p className="mt-2 text-xs text-amber-700">
@@ -704,8 +816,10 @@ export default function ProviderDashboard() {
                   </div>
                 </div>
               );
-            })}
-          </div>
+                })}
+              </div>
+            )}
+          </>
         )}
       </Card>
 
@@ -724,7 +838,7 @@ export default function ProviderDashboard() {
           <iframe
             src={preview.url}
             title={preview.name}
-            className="h-[70vh] w-full rounded-xl border border-slate-200"
+            className="h-[70vh] w-full rounded-xl border border-slate-200 dark:border-slate-600"
           />
         ) : preview.type.startsWith("video/") ? (
           <video src={preview.url} controls className="max-h-[70vh] w-full rounded-xl" />
@@ -734,7 +848,7 @@ export default function ProviderDashboard() {
           <iframe
             src={preview.url}
             title={preview.name}
-            className="h-[70vh] w-full rounded-xl border border-slate-200"
+            className="h-[70vh] w-full rounded-xl border border-slate-200 dark:border-slate-600"
           />
         ) : (
           <div className="space-y-3">

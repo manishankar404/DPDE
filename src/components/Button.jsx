@@ -4,7 +4,9 @@ const variants = {
   success: "bg-healthcare-success text-white hover:bg-green-700",
   warning: "bg-healthcare-warning text-white hover:bg-amber-700",
   danger: "bg-healthcare-error text-white hover:bg-red-700",
-  ghost: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50"
+  ghost:
+    "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 " +
+    "dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800"
 };
 
 export default function Button({
@@ -32,4 +34,3 @@ export default function Button({
     </button>
   );
 }
-

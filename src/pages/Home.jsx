@@ -1,10 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import { networkConfig } from "../styles/theme";
 
 export default function Home() {
   const { isAuthenticated, user } = useAuth();
+  const { theme } = useTheme();
   const [walletStatus, setWalletStatus] = useState("Not connected");
   const dashboardPath = user?.role === "patient" ? "/patient/dashboard" : "/provider/dashboard";
 
@@ -28,15 +30,32 @@ export default function Home() {
 
   return (
     <div className="relative flex min-h-[calc(100vh-65px)] items-center justify-center overflow-hidden px-4">
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-white to-teal-50" />
-      <div className="absolute -top-20 -right-20 h-72 w-72 rounded-full bg-teal-200/30 blur-3xl" />
-      <div className="absolute -bottom-16 -left-24 h-80 w-80 rounded-full bg-blue-200/30 blur-3xl" />
+      <div
+        className={[
+          "absolute inset-0",
+          isAuthenticated && theme === "dark"
+            ? "bg-gradient-to-br from-slate-950 via-slate-950 to-teal-950/40"
+            : "bg-gradient-to-br from-blue-50 via-white to-teal-50"
+        ].join(" ")}
+      />
+      <div
+        className={[
+          "absolute -top-20 -right-20 h-72 w-72 rounded-full blur-3xl",
+          isAuthenticated && theme === "dark" ? "bg-teal-500/10" : "bg-teal-200/30"
+        ].join(" ")}
+      />
+      <div
+        className={[
+          "absolute -bottom-16 -left-24 h-80 w-80 rounded-full blur-3xl",
+          isAuthenticated && theme === "dark" ? "bg-blue-500/10" : "bg-blue-200/30"
+        ].join(" ")}
+      />
 
       <div className="relative z-10 mx-auto max-w-4xl text-center slide-up">
-        <h1 className="text-4xl font-bold text-slate-900 md:text-5xl">
+        <h1 className="text-4xl font-bold text-slate-900 md:text-5xl dark:text-slate-100">
           Secure, Decentralized Healthcare Data Exchange
         </h1>
-        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
+        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600 dark:text-slate-300">
           DPDE enables patients and providers to exchange encrypted health records
           through blockchain-backed consent workflows and auditable access control. Log in with
           a wallet address using MetaMask.
@@ -74,7 +93,7 @@ export default function Home() {
           </div>
         )}
 
-        <footer className="mt-16 rounded-xl border border-slate-200 bg-white/80 px-5 py-3 text-sm text-slate-600 shadow-sm">
+        <footer className="mt-16 rounded-xl border border-slate-200 bg-white/80 px-5 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-600 dark:bg-slate-950/30 dark:text-slate-300">
           <span className="mr-6 font-medium">Network: {networkConfig.name}</span>
           <span>Wallet: {walletStatus}</span>
         </footer>

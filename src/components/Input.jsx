@@ -13,8 +13,10 @@ export default function Input({
           id={id}
           placeholder=" "
           className={[
-            "peer w-full rounded-xl border border-slate-300 bg-white px-3 pt-5 pb-2 text-sm",
+            "peer w-full rounded-xl border border-slate-300 bg-white px-3 pt-5 pb-2 text-sm text-slate-900",
+            "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
             "outline-none transition focus:border-healthcare-teal focus:ring-2 focus:ring-teal-100",
+            "dark:focus:ring-teal-900/30",
             error ? "border-healthcare-error focus:border-healthcare-error" : "",
             className
           ].join(" ")}
@@ -23,7 +25,7 @@ export default function Input({
         {label ? (
           <label
             htmlFor={id}
-            className="pointer-events-none absolute left-3 top-3 origin-[0] -translate-y-2 scale-75 text-xs text-slate-500 transition-all peer-placeholder-shown:translate-y-0 peer-placeholder-shown:scale-100 peer-focus:-translate-y-2 peer-focus:scale-75"
+            className="pointer-events-none absolute left-3 top-3 origin-[0] -translate-y-2 scale-75 text-xs text-slate-500 transition-all peer-placeholder-shown:translate-y-0 peer-placeholder-shown:scale-100 peer-focus:-translate-y-2 peer-focus:scale-75 dark:text-slate-400"
           >
             {label}
           </label>
@@ -33,4 +35,3 @@ export default function Input({
     </div>
   );
 }
-

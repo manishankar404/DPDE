@@ -52,16 +52,16 @@ export default function PatientNotifications() {
     <Card title="Notifications" subtitle="Email alerts for new access requests.">
       {loading ? <Loader label="Loading settings..." /> : null}
       {error ? (
-        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
           {error}
         </div>
       ) : null}
 
       <div className="flex flex-col gap-3">
-        <label className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4">
+        <label className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-600 dark:bg-slate-950/30">
           <div>
-            <div className="text-sm font-semibold text-slate-900">Access request emails</div>
-            <div className="mt-1 text-xs text-slate-500">
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Access request emails</div>
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Sends an email when a provider requests access to one of your records.
             </div>
           </div>
@@ -75,7 +75,7 @@ export default function PatientNotifications() {
         </label>
 
         {!user?.email ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
             Add an email address in your profile to receive notifications.{" "}
             <Link to="/patient/dashboard" className="font-semibold underline">
               Go to dashboard
@@ -85,7 +85,7 @@ export default function PatientNotifications() {
         ) : null}
 
         {saving ? (
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
             Saving...
           </div>
         ) : null}
