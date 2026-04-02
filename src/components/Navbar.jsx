@@ -58,9 +58,11 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
   }
 
   const baseLink =
-    "rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-900";
+    "rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-900 " +
+    "dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-50";
   const activeLink =
-    "bg-slate-100 text-slate-900 ring-1 ring-inset ring-slate-200";
+    "bg-slate-100 text-slate-900 ring-1 ring-inset ring-slate-200 " +
+    "dark:bg-slate-800 dark:text-slate-50 dark:ring-slate-700";
 
   return (
     <>
@@ -76,7 +78,7 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
               <button
                 type="button"
                 className={[
-                  "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50",
+                  "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800",
                   isDashboard ? "" : "md:hidden"
                 ].join(" ")}
                 onClick={handleMobileMenu}
@@ -179,8 +181,8 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
                   to={link.to}
                   className={({ isActive }) =>
                     [
-                      "block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100",
-                      isActive ? "bg-slate-100 text-slate-900" : ""
+                      "block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
+                      isActive ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-50" : ""
                     ].join(" ")
                   }
                   end={link.to === "/"}
@@ -191,7 +193,7 @@ export default function Navbar({ variant = "public", onMenuClick = null, menuOpe
             </div>
 
             {isAuthenticated ? (
-              <div className="mt-6 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mt-6 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
                 <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Signed in as</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <StatusBadge status={user?.role || "unknown"} />

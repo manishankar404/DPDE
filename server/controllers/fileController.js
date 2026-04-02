@@ -1,4 +1,6 @@
 import { ethers } from "ethers";
+import AccessRequest from "../models/AccessRequest.js";
+import AuditLog from "../models/AuditLog.js";
 import File from "../models/File.js";
 import Patient from "../models/Patient.js";
 import { logAction } from "../utils/auditLogger.js";
@@ -222,6 +224,55 @@ export async function revokeWrappedKeys(req, res, next) {
     }).catch((error) => console.warn("[audit] REVOKE log failed:", error?.message || error));
 
     return res.status(200).json({ message: "Wrapped keys revoked." });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function deleteFileByCid(req, res, next) {
+  try {
+    const { patientId, cid } = req.params;
+
+    if (!patientId || !cid) {
+      return res.status(400).json({ message: "patientId and cid are required" });
+    }
+
+    const patient = await Patient.findOne({ patientId });
+    if (!patient) {
+      return res.status(404).json({ message: "Patient not found" });
+    }
+    if (patient.walletAddress.toLowerCase() !== req.user.walletAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Not owner of this patientId" });
+    }
+
+    const file = await File.findOne({ cid, patientId });
+    if (!file) {
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    const patientWallet = patient.walletAddress.toLowerCase();
+    const fileName = String(file.fileName || "");
+    const fileType = String(file.fileType || "");
+
+    await Promise.allSettled([
+      File.deleteOne({ _id: file._id }),
+      AccessRequest.deleteMany({ cid, patientId }),
+      AuditLog.deleteMany({ cid, patientWallet })
+    ]);
+
+    logAction({
+      action: "DELETE_FILE",
+      patientWallet,
+      providerWallet: "",
+      cid,
+      fileName,
+      role: "patient",
+      metadata: { patientId, fileType }
+    }).catch((error) =>
+      console.warn("[audit] DELETE_FILE log failed:", error?.message || error)
+    );
+
+    return res.status(200).json({ deleted: true });
   } catch (error) {
     return next(error);
   }

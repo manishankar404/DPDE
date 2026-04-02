@@ -52,6 +52,8 @@ export function formatActionLog(log = {}) {
         return fileName ? `You printed ${fileName}` : "You printed a file";
       }
       return fileName ? `${actor} printed ${fileName}` : `${actor} printed a file`;
+    case "DELETE_FILE":
+      return fileName ? `You deleted ${fileName}` : "You deleted a file";
     default:
       return action ? `${action} ${fileName ? `• ${fileName}` : ""}`.trim() : "Activity";
   }

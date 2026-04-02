@@ -141,12 +141,12 @@ export default function Login() {
           </Button>
 
           {validation && walletAddress ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
               {validation}
             </div>
           ) : null}
           {error ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
               {error}
             </div>
           ) : null}
@@ -157,7 +157,7 @@ export default function Login() {
           {loading ? <Loader label="Signing in..." /> : null}
         </form>
 
-        <div className="mt-4 text-sm text-slate-500">
+        <div className="mt-4 text-sm text-slate-500 dark:text-slate-300">
           <p>
             New patient?{" "}
             <Link to="/patient/register" className="font-medium text-healthcare-blue">

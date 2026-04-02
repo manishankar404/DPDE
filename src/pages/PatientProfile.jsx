@@ -104,26 +104,26 @@ export default function PatientProfile() {
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <div className="text-xs font-medium text-slate-500">Name</div>
-            <div className="text-sm font-semibold text-slate-900">{user?.name || "Patient"}</div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Name</div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{user?.name || "Patient"}</div>
           </div>
           <div>
-            <div className="text-xs font-medium text-slate-500">Patient ID</div>
-            <div className="text-sm text-slate-700">{user?.patientId || "—"}</div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Patient ID</div>
+            <div className="text-sm text-slate-700 dark:text-slate-200">{user?.patientId || "—"}</div>
           </div>
           <div>
-            <div className="text-xs font-medium text-slate-500">Wallet</div>
-            <div className="font-mono text-sm text-slate-700">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Wallet</div>
+            <div className="font-mono text-sm text-slate-700 dark:text-slate-200">
               {shortenWallet(user?.walletAddress) || "—"}
             </div>
           </div>
           <div>
-            <div className="text-xs font-medium text-slate-500">Email</div>
-            <div className="text-sm text-slate-700">{user?.email || "—"}</div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Email</div>
+            <div className="text-sm text-slate-700 dark:text-slate-200">{user?.email || "—"}</div>
           </div>
           <div>
-            <div className="text-xs font-medium text-slate-500">Phone</div>
-            <div className="text-sm text-slate-700">{user?.phone || "—"}</div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Phone</div>
+            <div className="text-sm text-slate-700 dark:text-slate-200">{user?.phone || "—"}</div>
           </div>
         </div>
       </Card>

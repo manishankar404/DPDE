@@ -592,12 +592,12 @@ export default function ProviderDashboard() {
       <Card title="Welcome">
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <div className="text-xs font-medium text-slate-500">Doctor</div>
-            <div className="text-sm font-semibold text-slate-900">{user?.name || "Doctor"}</div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Doctor</div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{user?.name || "Doctor"}</div>
           </div>
           <div>
-            <div className="text-xs font-medium text-slate-500">Hospital</div>
-            <div className="text-sm text-slate-700">{user?.hospitalName || "—"}</div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Hospital</div>
+            <div className="text-sm text-slate-700 dark:text-slate-200">{user?.hospitalName || "—"}</div>
           </div>
         </div>
       </Card>

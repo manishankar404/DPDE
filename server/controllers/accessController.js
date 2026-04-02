@@ -74,7 +74,16 @@ export async function requestAccess(req, res, next) {
     }).catch((error) => console.warn("[audit] REQUEST_ACCESS log failed:", error?.message || error));
 
     const notificationsEnabled = patient.notificationsEnabled !== false;
+    if (!notificationsEnabled || !patient.email) {
+      console.log("[mail] notification skipped:", {
+        notificationsEnabled,
+        hasEmail: Boolean(patient.email),
+        patientId
+      });
+    }
+
     if (notificationsEnabled && patient.email) {
+      console.log("[mail] notification attempt:", { to: patient.email, patientId });
       (async () => {
         const providerProfile = await resolveWallet(providerWallet);
         const providerDisplay = providerProfile?.display || providerWallet;
@@ -90,7 +99,18 @@ export async function requestAccess(req, res, next) {
           "Log in to DPDE to approve or reject this request."
         ].join("\n");
 
-        await sendMail({ to: patient.email, subject, text });
+        const result = await sendMail({ to: patient.email, subject, text });
+        if (!result?.sent) {
+          console.warn("[mail] access request notification not sent:", result);
+        } else if (
+          String(process.env.MAIL_DEBUG || "").toLowerCase() === "true" ||
+          String(process.env.MAIL_DEBUG || "") === "1"
+        ) {
+          console.log("[mail] access request notification sent:", {
+            to: patient.email,
+            messageId: result?.messageId || ""
+          });
+        }
       })().catch((error) => {
         console.warn("[mail] access request notification failed:", error?.message || error);
       });

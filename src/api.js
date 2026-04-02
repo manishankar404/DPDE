@@ -165,6 +165,12 @@ export function getFilesByPatient(patientId, providerWallet = "") {
   });
 }
 
+export function deletePatientFile(patientId, cid) {
+  return request(`/files/${encodeURIComponent(patientId)}/${encodeURIComponent(cid)}`, {
+    method: "DELETE"
+  });
+}
+
 export function requestAccess(data) {
   return request("/access/request", {
     method: "POST",

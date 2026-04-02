@@ -97,7 +97,7 @@ export default function PatientRegister() {
             </div>
           ) : null}
           {success ? (
-            <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+            <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-500/40 dark:bg-green-500/10 dark:text-green-200">
               {success}
             </div>
           ) : null}
@@ -108,7 +108,7 @@ export default function PatientRegister() {
           {loading ? <Loader label="Creating account..." /> : null}
         </form>
 
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-sm text-slate-500 dark:text-slate-300">
           Already registered?{" "}
           <Link to="/login" className="font-medium text-healthcare-blue">
             Login

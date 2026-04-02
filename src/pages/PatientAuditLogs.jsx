@@ -18,14 +18,15 @@ const ACTION_BADGE_STYLES = {
   VIEW_FILE: "bg-purple-100 text-purple-800 border-purple-200",
   DOWNLOAD_FILE: "bg-teal-100 text-teal-800 border-teal-200",
   PRINT_FILE: "bg-sky-100 text-sky-800 border-sky-200",
+  DELETE_FILE: "bg-rose-100 text-rose-800 border-rose-200",
   DEFAULT: "bg-slate-100 text-slate-700 border-slate-200"
 };
 
 const ACCESS_TABLE_ACTIONS = ["REQUEST_ACCESS", "APPROVE", "REJECT", "REVOKE"];
 const ACCESS_REQUEST_ONLY_ACTIONS = ["REQUEST_ACCESS"];
 const ACCESS_DECISION_ACTIONS = ["APPROVE", "REJECT", "REVOKE"];
-const FILE_TABLE_ACTIONS = ["UPLOAD", "VIEW_FILE", "DOWNLOAD_FILE", "PRINT_FILE"];
-const FILE_ACCESS_ACTIONS = ["VIEW_FILE", "DOWNLOAD_FILE", "PRINT_FILE"];
+const FILE_TABLE_ACTIONS = ["UPLOAD", "VIEW_FILE", "DOWNLOAD_FILE", "PRINT_FILE", "DELETE_FILE"];
+const FILE_ACCESS_ACTIONS = ["VIEW_FILE", "DOWNLOAD_FILE", "PRINT_FILE", "DELETE_FILE"];
 const UPLOAD_ACTIONS = ["UPLOAD"];
 
 function normalizeText(value) {
@@ -462,8 +463,8 @@ export default function PatientAuditLogs() {
           <Button type="button" variant="ghost" onClick={() => navigate("/patient/dashboard")}>
             Back
           </Button>
-          <div className="text-xs text-slate-500">
-            Showing <span className="font-semibold text-slate-700">{filteredLogs.length}</span>{" "}
+          <div className="text-xs text-slate-500 dark:text-slate-300">
+            Showing <span className="font-semibold text-slate-700 dark:text-slate-100">{filteredLogs.length}</span>{" "}
             {filteredLogs.length === 1 ? "log" : "logs"}
           </div>
         </div>

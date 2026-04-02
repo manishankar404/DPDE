@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  deleteFileByCid,
   getFilesByPatientId,
   registerFile,
   revokeWrappedKeys,
@@ -19,5 +20,11 @@ router.post("/register", authenticate, authorizeRole("patient"), registerFile);
 router.post("/wrap-key", authenticate, authorizeRole("patient"), wrapKeyForProvider);
 router.post("/revoke-key", authenticate, authorizeRole("patient"), revokeWrappedKeys);
 router.get("/:patientId", authenticate, authorizeRole("patient", "provider"), getFilesByPatientId);
+router.delete(
+  "/:patientId/:cid",
+  authenticate,
+  authorizeRole("patient"),
+  deleteFileByCid
+);
 
 export default router;
